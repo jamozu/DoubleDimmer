@@ -39,12 +39,12 @@ Features:
 *	LED indicators intensity can be set remotely or turned off for day / night mode.
 *	Smart control and configuration using MQTT over WiFi; An MQTT broker is required.
 *	ON/OFF state and brightness can be set via the push buttons or remotely via WiFi/MQTT.
-•	Integrated into Home-Assistant or other MQTT compatible IoT Hubs, with auto discovery.
-•	Setup Portal over WiFi, to configure WiFi/MQTT parameters.
-•	The Setup Portal is started by a double reset or optionally with multi-click of any of the light buttons.
-•	On Power Up the device resets to the last known state, using MQTT retain or EEPROM.
-•	Optional double click to trigger additional actions.
-•	Advanced configuration through MQTT.
+*	Integrated into Home-Assistant or other MQTT compatible IoT Hubs, with auto discovery.
+*	Setup Portal over WiFi, to configure WiFi/MQTT parameters.
+*	The Setup Portal is started by a double reset or optionally with multi-click of any of the light buttons.
+*	On Power Up the device resets to the last known state, using MQTT retain or EEPROM.
+*	Optional double click to trigger additional actions.
+*	Advanced configuration through MQTT.
 
 For mor details check the documentation at: https://github.com/jamozu/DoubleDimmer/blob/main/RRoble_Double_Dimmer.pdf
 
