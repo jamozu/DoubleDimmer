@@ -31,14 +31,14 @@ This project consists of an AC light dimmer for one or two incandescent light bu
 The Dimmer functionality is achieved using the phase control method, using a TRIAC for each bulb, varying the total power applied. This method works very well with incandescent light bulbs and with LED lamps that have the Dimmable specification.
 
 Features:
-•	Lights can be dimmed from 10% to 100% power.
-•	Supports transitions between brightness levels.
-•	One push button per light bulb to control the ON/OFF state and brightness.
-•	A LED indicator for each button/light bulb.
-•	LED indicators change intensity if light is ON or OFF. 
-•	LED indicators intensity can be set remotely or turned off for day / night mode.
-•	Smart control and configuration using MQTT over WiFi; An MQTT broker is required.
-•	ON/OFF state and brightness can be set via the push buttons or remotely via WiFi/MQTT.
+* Lights can be dimmed from 10% to 100% power.
+*	Supports transitions between brightness levels.
+*	One push button per light bulb to control the ON/OFF state and brightness.
+*	A LED indicator for each button/light bulb.
+*	LED indicators change intensity if light is ON or OFF. 
+*	LED indicators intensity can be set remotely or turned off for day / night mode.
+*	Smart control and configuration using MQTT over WiFi; An MQTT broker is required.
+*	ON/OFF state and brightness can be set via the push buttons or remotely via WiFi/MQTT.
 •	Integrated into Home-Assistant or other MQTT compatible IoT Hubs, with auto discovery.
 •	Setup Portal over WiFi, to configure WiFi/MQTT parameters.
 •	The Setup Portal is started by a double reset or optionally with multi-click of any of the light buttons.
