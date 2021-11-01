@@ -1,3 +1,6 @@
+/** **********************************************************************************************
+   DIMMER
+*********************************************************************************************** */
 /*
   This software may be modified and distributed under the terms of the MIT license.
 
@@ -22,7 +25,7 @@
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
   
   ------------------------------------------------------------------------------------------------
-  RRoble Duble Dimmer
+  RRoble Duble Dimmer (Customized)
   ------------------------------------------------------------------------------------------------
   
   This project consists of an AC light dimmer for one or two incandescent light bulbs or dimmable 
@@ -90,7 +93,7 @@
   Upload Speed: 115200
   CPU Frequency: 80 MHz
   Crystal Frequency: 26 MHz
-  Flash Size: 4M (1M SPIFFS)
+  Flash Size: 4M (1M LittleFS)
   Flash Mode: QIO
   Flash Frequency: 40 MHz
   Reset Method: ck
@@ -103,14 +106,13 @@
   Todo
   ------------------------------------------------------------------------------------------------
 
-  - Default turn on value at boot / override persistent status
-  - 
+  - MQTT Signatures
   
   ------------------------------------------------------------------------------------------------
   ------------------------------------------------------------------------------------------------
   @author Jesus Amozurrutia Elizalde <jamozu@gmail.com>
-  @version 0.5.9a
-  @date 2020/12/14
+  @version 0.7.10
+  @date 2021/11/01
   @since Friday February 01 2019, 10:32:00
   @copyright MIT license
   @pre Device: ESP-12E (ESP8266)
@@ -126,8 +128,12 @@
 /* --------------------------------------------------------------------------------------------
    Device identification
    -------------------------------------------------------------------------------------------- */
+// Hardware version
+#define HVERSION "02"
+#define HVERSION_NUM 2
+
 // Software version
-#define SVERSION "0.5.9a"
+#define SVERSION "0.7.10"
 
 // Title for the application
 #define DEVICE_TITLE "RRoble Light Dimmer"
@@ -165,10 +171,7 @@
 #define MQTT_RESET 
 
 // Enable OTA Updates
-#define OTA_UPDATES
-
-// Enable debug messages to serial port
-#define DEBUG_MODE
+//#define OTA_UPDATES
 
 // Save staus information on reset (useful for debugging network issues)
 #define SAVE_ON_RESET
@@ -176,39 +179,45 @@
 // Allow clearing saved status via MQTT message
 #define SAVE_ON_RESET_CLEAR
 
+
 /* -------------------------------------------------------------------------------------------- 
     Debug
    -------------------------------------------------------------------------------------------- */
+// Enable debug messages to serial port
+#define DEBUG_MODE
 
 // Serial port speed
 #define SERIAL_SPEED 74880
 
 
 /* -------------------------------------------------------------------------------------------- 
-    OTA Updates
+    Direct OTA Updates
    -------------------------------------------------------------------------------------------- */
-
 // OTA Port
-#define OTA_AR_PORT 8266
+//#define OTA_AR_PORT 8266
+
+// MD5 Hash for secure OTA Arduino Updates
+//#define OTA_AR_HASH "266ba2d990fc2ff1ef34c571e4ea49de"
 
 // Password for secure OTA Arduino Updates (not recommended)
 //#define OTA_AR_PASS "myOtaPass"
 
-// MD5 Hash for secure OTA Arduino Updates
-//#define OTA_AR_HASH "266ba2d990fc2ff1ef34c571e4ea49de"
-                            
 
+/* -------------------------------------------------------------------------------------------- 
+    OTA through HTTP Server (Overrides Direct OTA Updates)
+   -------------------------------------------------------------------------------------------- */
 // Define the next 4 parameters to update from an HTTP Server
-//#define OTA_HTTP_SERVER "myDomain.com"
+//#define OTA_HTTP_SERVER "domain.name"
 //#define OTA_HTTP_PORT 80
-//#define OTA_SCRIPT_NAME "dimmerUpdater.php"
-//#define OTA_IMAGE_VERSION SVERSION
+//#define OTA_SCRIPT_NAME "/updateScript.php"
+
+// Another option is to define the Http server in a single line
+//#define OTA_HTTP_URL "http://domain.name/updateScript.php"
 
 
 /* -------------------------------------------------------------------------------------------- 
    Network
    -------------------------------------------------------------------------------------------- */
-   
 // WiFi re-connect timer (ms)
 #define WIFI_RECONNECT 8900
 
@@ -234,7 +243,7 @@
 //#define MQTT_SIGN
 
 // MQTT Buffer size (10 - 90)
-#define BUFFER_SIZE 20
+#define BUFFER_SIZE 15
 
 // MQTT Subscription Busy Time Out (ms)
 #define MQTT_BUSY_TO 5000
@@ -245,6 +254,30 @@
 // Re-subscribe to MQTT Topics (sec)
 #define MQTT_RESUBSCRIBE 600
 
+/* -------------------------------------------------------------------------------------------- 
+   Messages
+   -------------------------------------------------------------------------------------------- */
+// Alive message
+#define MQTT_MSG_ALIVE "{\"feedback\":\"online\"}"
+
+// Go live sequence start message to hub/broker
+#define MQTT_MSG_GOLIVE "{\"feedback\":\"golive\"}"
+
+// Go live sequence start message to hub/broker
+#define MQTT_MSG_RESET "{\"feedback\":\"golive\"}"
+
+// Configuration saved
+#define MQTT_MSG_SAVE "{\"feedback\":\"configuration saved\"}"
+
+// Configuration save failed
+#define MQTT_MSG_SAVE_FAIL "{\"feedback\":\"configuration not saved\"}"
+
+// Configuration save failed
+#define MQTT_MSG_SC "{\"feedback\":\"status cleared\"}"
+
+// Configuration save failed
+#define MQTT_MSG_SNC "{\"feedback\":\"status not cleared\"}"
+
 
 /* -------------------------------------------------------------------------------------------- 
    Dimmer definitions
@@ -253,26 +286,39 @@
 #define GO_LIVE_DURATION 60
 
 // Mimimum power applied to lamps (10% is a safe value, but some  LED lamps require between 
-//  15% and 20% to be clearly vissible
+//  15% and 20% to be vissible and differentiate from the off state
 #define MIN_POW  10
 
 // Maximum value for Minimum power
 #define MAX_MIN_POW  50
 
+// Maximum dimm time (ms)
+#define MAX_DIMM_TIME  20000
+
+// Minimum dimm time (ms)
+#define MIN_DIMM_TIME  500
+
+// Maximum time at the edges of the dimmable range (ms). 
+#define MAX_EDGE_TIME  3000
+
+// Minimum time at the edges of the dimmable range (ms).
+#define MIN_EDGE_TIME  100
+
+// Button debounce timer
+#define BTN_DEBOUNCE  50
+
 // Button long press in ms
 #define BTN_LONG_PRESS  800
 
 // Button double click timer in ms
-#define DBL_CLICK_INTERVAL  400
+#define DBL_CLICK_INTERVAL  600
 
 // Number of double clicks to trigger the Setup Portal
-#define MULT_CLICK_COUNT 3
+#define MULT_CLICK_COUNT 6
 
-// Interval to get the double clicks, after the first double is detected in ms
-#define MULT_CLICK_INTERVAL 800
-
-// Transition speed on wakeup
+// Transition speed on wakeup (after a power outage or reset)
 #define CONFIG_TRANSITION_WAKE 5
+
 
 /* -------------------------------------------------------------------------------------------- 
    Default configuration values
@@ -287,24 +333,18 @@
 #define CONFIG_MQTT_PASS ""               // "mqttpass" configuration parameter default
 #define CONFIG_MQTT_NAMESPACE "namespc"   // "namespc" configuration parameter default
 #define CONFIG_MQTT_KEY ""                // "mqttkey" configuration parameter default
-#define CONFIG_MQTT_NAME01 ""             // "name01" configuration parameter default
-#define CONFIG_MQTT_NAME02 ""             // "name02" configuration parameter default
 #define CONFIG_LGT_MODE true              // "LgtMode" configuration parameter default
-#define CONFIG_LGT1_DIMM true             // "Lgt1Dimm" configuration parameter default
-#define CONFIG_LGT1_TRNS true             // "Lgt1Trns" configuration parameter default
-#define CONFIG_LGT2_DIMM true             // "Lgt2Dimm" configuration parameter default
-#define CONFIG_LGT2_TRNS true             // "Lgt2Trns" configuration parameter default
-#define CONFIG_LED_BRIGHT 1000            // "LedBright" configuration parameter default
-#define CONFIG_LED_DIMM 250               // "LedDimm" configuration parameter default
+#define CONFIG_LGT_DIMM true              // "LgtDimm" configuration parameter default
+#define CONFIG_LGT_TRNS true              // "LgtTrns" configuration parameter default
+#define CONFIG_LED_BRIGHT 100             // "LedBright" configuration parameter default
+#define CONFIG_LED_DIMM 25                // "LedDimm" configuration parameter default
 #define CONFIG_LED_DEFAULT true           // "LedDefault" configuration parameter default
-#define CONFIG_DIMMING_TIME 25            // "dimmTime" configuration parameter default
-#define CONFIG_EDGE_TIME 8                // "edgeTime" configuration parameter default
+#define CONFIG_DIMMING_TIME 2500          // "dimmTime" configuration parameter default
+#define CONFIG_EDGE_TIME 800              // "edgeTime" configuration parameter default
 #define CONFIG_TRANSITION_ON 0            // "transitionOn" configuration parameter default
 #define CONFIG_TRANSITION_OFF 0           // "transitionOff" configuration parameter default
-#define CONFIG_MIN_POW1 10                // "minPow1" configuration parameter default
-#define CONFIG_MIN_POW2 10                // "minPow2" configuration parameter default
-#define CONFIG_DBL_TOPIC ""               // "topicDouble" configuration parameter default
-#define CONFIG_DBL_PAYLOAD "dobleclick"   // "payloadDouble" configuration parameter default
+#define CONFIG_MIN_POW 10                 // "minPow" configuration parameter default
+#define CONFIG_BRIGHTNESS 100             // "brightness" configuration parameter default
 
 
 /* -------------------------------------------------------------------------------------------- 
@@ -326,8 +366,10 @@
 
 /* --------------------------------------------------------------------------------------------
    Libraries
+   LittleFS
    -------------------------------------------------------------------------------------------- */
-#include <FS.h>                 // This needs to be first, or it all crashes and burns...
+//#include <FS.h>                 // This needs to be first, or it all crashes and burns...
+#include "LittleFS.h" 
 #include <ESP8266WiFi.h>        // Ver: 2.3.0 @ https://github.com/esp8266/Arduino
 //                                 https://wiki.wemos.cc/tutorials:get_started:get_started_in_arduino
 //                                 a) Start Arduino and open File -> Preferences window.
@@ -353,23 +395,9 @@
 #include <Ticker.h>
 
 /* -------------------------------------------------------------------------------------------- 
-   Conditional libraries
-   -------------------------------------------------------------------------------------------- */
-#ifdef OTA_UPDATES
-#include <ESP8266mDNS.h>
-#include <WiFiUdp.h>
-#include <ArduinoOTA.h>
-#endif
-
-#if defined(SAVE_ON_RESET) || defined(PERSISTENT_STATE)
-#include <EEPROM.h>
-#endif
-
-/* -------------------------------------------------------------------------------------------- 
    General definitions
    -------------------------------------------------------------------------------------------- */
-
-// System timer (one second)
+// System timer (us)
 #define SYS_TIMER 1000
 
 // Number of MQTT instances
@@ -379,37 +407,90 @@
   #define INSTANCE_NUM 1
 #endif
 
-#if defined(OTA_HTTP_SERVER) && defined(OTA_HTTP_PORT) && defined(OTA_SCRIPT_NAME) && defined(OTA_IMAGE_VERSION)
+// LED base in us
+#define LED_PWM 8000
+
+// PACKETS IN TRANSIT
+#define IN_TRANSIT 3
+
+// TRANSIT TIMEOUT
+#define TRANSIT_TO 5
+
+// JSON Library
+#define JSON6
+
+#if (defined(OTA_HTTP_SERVER) && defined(OTA_HTTP_PORT) && defined(OTA_SCRIPT_NAME)) || (defined(OTA_HTTP_URL))
   #define OTA_HTTP
+  #if INSTANCE_NUM == 3
+    #define OTA_IMAGE_VERSION (SVERSION ".T" HVERSION)
+  #elif INSTANCE_NUM == 2
+    #define OTA_IMAGE_VERSION (SVERSION ".D" HVERSION)
+  #else
+    #define OTA_IMAGE_VERSION (SVERSION ".S" HVERSION)
+  #endif
 #endif
 
 #ifdef SAVE_ON_RESET
   #define SAVE_ON_RESET_AT 10
 #endif
 
+
+/* -------------------------------------------------------------------------------------------- 
+   Conditional libraries
+   -------------------------------------------------------------------------------------------- */
+#ifdef OTA_UPDATES
+  #ifdef OTA_HTTP
+    #include <ESP8266HTTPClient.h>
+    #include <ESP8266httpUpdate.h>
+  #else
+    #include <ESP8266mDNS.h>
+    #include <WiFiUdp.h>
+    #include <ArduinoOTA.h>
+  #endif
+#endif
+
+#if defined(SAVE_ON_RESET) || defined(PERSISTENT_STATE)
+  #include <EEPROM.h>
+#endif
+
+
 /* -------------------------------------------------------------------------------------------- 
    Hardware
    -------------------------------------------------------------------------------------------- */
-
 // Pins
 #define PIN_ZCROSS 13        // Zero crossing signal pin
-#ifdef DOUBLE_DIMMER
-  #define PIN_TM1 4          // Triac 1 trigger signal
-  #define PIN_TM2 5          // Triac 2 trigger signal
-  #define PIN_BUTTON1 12     // Button 1
-  #define PIN_BUTTON2 14     // Button 2
-  #define PIN_LED1 2         // LED indicator 1
-  #define PIN_LED2 0         // LED indicator 2
+#if HVERSION_NUM == 1
+  #if INSTANCE_NUM == 2
+    #define PIN_TM1 4          // Triac 1 trigger signal (Right)
+    #define PIN_TM2 5          // Triac 2 trigger signal (Left)
+    #define PIN_BUTTON1 14     // Button 1 (Right)
+    #define PIN_BUTTON2 12     // Button 2 (Left)
+    #define PIN_LED1 2         // LED indicator 1 (Right)
+    #define PIN_LED2 0         // LED indicator 2 (Left)
+  #else
+    #define PIN_TM1 5          // Triac 1 trigger signal
+    #define PIN_BUTTON1 12     // Button 1
+    #define PIN_LED1 4         // LED indicator 1
+  #endif
 #else
-  #define PIN_TM1 5          // Triac 1 trigger signal
-  #define PIN_BUTTON1 12     // Button 1
-  #define PIN_LED1 2         // LED indicator 1
+  #if INSTANCE_NUM == 2
+    #define PIN_TM1 4          // Triac 1 trigger signal (Right)
+    #define PIN_TM2 5          // Triac 2 trigger signal (Left)
+    #define PIN_BUTTON1 12     // Button 1 (Right)
+    #define PIN_BUTTON2 14     // Button 2 (Left)
+    #define PIN_LED1 2         // LED indicator 1 (Right)
+    #define PIN_LED2 0         // LED indicator 2 (Left)
+  #else
+    #define PIN_TM1 5          // Triac 1 trigger signal
+    #define PIN_BUTTON1 12     // Button 1
+    #define PIN_LED1 2         // LED indicator 1
+  #endif
 #endif
+
 
 /* -------------------------------------------------------------------------------------------- 
    Dimmer AC Signal detection
    -------------------------------------------------------------------------------------------- */
-   
 // Segments in each half AC cycle
 #define SEGMENTS 119
 // Zero Cross Debounce time
@@ -437,6 +518,24 @@
 // Number of events to detect frequency and Zero Cross pulse
 #define SETUP_EVENTS 200
 
+
+/* --------------------------------------------------------------------------------------------
+   Compilation messages
+   -------------------------------------------------------------------------------------------- */
+#if INSTANCE_NUM == 3
+  #warning "Image for triple light dimmer"
+#elif INSTANCE_NUM == 2
+  #warning "Image for double light dimmer"
+#else
+  #warning "Image for single light dimmer"
+#endif
+#if HVERSION_NUM < 2
+  #warning "Hardware version 1"
+#else
+  #warning "Hardware version 2"
+#endif
+
+
 /* --------------------------------------------------------------------------------------------
    Device identification constants
    -------------------------------------------------------------------------------------------- */
@@ -450,62 +549,58 @@ const char* PORTAL_SSID = PORTAL_PREFIX;
 // the MQTT topics
 const char* INST_TYPE = INSTANCE_TYPE;
 
+
 /* -------------------------------------------------------------------------------------------- 
    Configuration parameters. Stored in FS (File System)
    -------------------------------------------------------------------------------------------- */
 struct iotConfig {
-  int mqttport;                 // MQTT port
-  char mqttbroker[65];          // Broker domain or IP address
-  char mqttuser[41];            // MQTT User
-  char mqttpass[41];            // MQTT Password
-  char namespc[41];             // MQTT Namespace
-  char mqttkey[41];             // MQTT signature key (not implemented yet)
-  bool retain;                  // MQTT Retain enable/disable 
-  int keepAlive;                // MQTT Keepalive interval
-  char myId[21];                // MQTT namespace Unique ID
-  bool LgtMode;                 // General mode (Dimmer or Switch)
-  int LedBright;                // LED Indicator level in bright mode (lights on)
-  int LedDimm;                  // LED Indicator level in dimm mode level (lights off)
-  boolean LedDefault;           // Default status for LED Indicators
-  int dimmTime;                 // Dimming time (tenths of seconds)
-  int edgeTime;                 // Time on the edge of the dimmable range (tenths of seconds)
-  int transitionOn;             // Transition speed to turn ON
-  int transitionOff;            // Transition speed to turn OFF
-  char name01[41];              // Name for light bulb 1
-  bool Lgt1Dimm;                // Light 1 mode (Dimmer or Switch)
-  bool Lgt1Trns;                // Light 1 transitions enabled
-  int minPow1;                  // Min. Power % for Light 1
-  #ifdef DOUBLE_DIMMER
-    char name02[41];              // Name for light bulb 2
-    bool Lgt2Dimm;                // Light 2 mode (Dimmer or Switch)
-    bool Lgt2Trns;                // Light 2 transitions enabled
-    int minPow2;                  // Min. Power % for Light 2
-  #endif
-  #ifdef DBL_CLICK
-    char topicDouble[81];         // Topic used to publish when double click is detected
-    char payloadDouble[81];       // Payload for double click
-  #endif
+  int mqttport;                   // MQTT port
+  char mqttbroker[65];            // Broker domain or IP address
+  char mqttuser[41];              // MQTT User
+  char mqttpass[41];              // MQTT Password
+  char namespc[41];               // MQTT Namespace
+  char mqttkey[41];               // MQTT signature key (not implemented yet)
+  bool retain;                    // MQTT Retain enable/disable 
+  int keepAlive;                  // MQTT Keepalive interval
+  char myId[21];                  // MQTT namespace Unique ID
+  bool LgtMode;                   // General mode (Dimmer or Switch)
+  int LedBright;                  // LED Indicator level in bright mode (lights on)
+  int LedDimm;                    // LED Indicator level in dimm mode level (lights off)
+  boolean LedDefault;             // Default status for LED Indicators
+  int dimmTime;                   // Dimming time (milliseconds)
+  int edgeTime;                   // Time on the edge of the dimmable range (milliseconds)
+  int transitionOn;               // Transition speed to turn ON
+  int transitionOff;              // Transition speed to turn OFF
+  char iName[INSTANCE_NUM][41];   // Name for light bulb 1
+  bool iDimm[INSTANCE_NUM];       // Light mode (Dimmer or Switch)
+  bool iTrns[INSTANCE_NUM];       // Light transitions enabled
+  int iMinPow[INSTANCE_NUM];      // Min. Power % for Light
+  int iBrightness[INSTANCE_NUM];  // Default brightness
 };
   // Global configuration object
 iotConfig dconfig;
+
 
 /* -------------------------------------------------------------------------------------------- 
    Topics
    -------------------------------------------------------------------------------------------- */
 // MQTT topic to subscribe for incomming SET messages: "NAMESPACE/INSTANCE_TYPE/DEVICE_ID/set"
 char topicSet[81];
-
 // MQTT topic to publish device status: "NAMESPACE/INSTANCE_TYPE/DEVICE_ID/state"
 char topicState[81];
-
+#ifdef DBL_CLICK
+  // MQTT topic to publish button actions: "NAMESPACE/DEVICE_ID/action"
+  char topicAction[81];
+#endif
 // MQTT Instance Topics
 struct topicStruct {
-  char uname[41];     // Light name
-  char uid[41];       // Light unique ID
+  char uname[41];     // Light Name
+  char uid[41];       // Light Unique ID
   char state[81];     // Light STATE topic
   char set[81];       // Light SET topic
 };
 topicStruct mqttTopics[INSTANCE_NUM];
+
 
 /* -------------------------------------------------------------------------------------------- 
    Button definitions
@@ -513,19 +608,18 @@ topicStruct mqttTopics[INSTANCE_NUM];
 struct pressButton {
   int pinId;
   int eventState;
-  int longInterval;
-  int repInterval;
-  int dblInterval;
+  int features;
   int state;
   int lastState;
-  boolean repFlag;
-  boolean dblFlag;
-  unsigned long dbncInterval;
+  int clkCtr;
+  boolean lngFlag;
+  unsigned int repInterval;
   unsigned long btnTimer;
   unsigned long repTimer;
   unsigned long dblTimer;
 };
 pressButton myButtons[INSTANCE_NUM];
+
 
 /* -------------------------------------------------------------------------------------------- 
    Configuration and loop variables
@@ -536,13 +630,17 @@ bool shouldSaveConfig = false;
 bool mounted = false;
 // Millisecond counter for periodic system calls
 unsigned long sysMillis = 0;
+// Overflow detector  for system timer
+unsigned long sysOvf = 0;
+// Flag for system overflow
+bool sysOvfFlg = false;
 // Keep alive counter
 int keepAlive = 0;
 // Second counter (low precision)
 unsigned long aliveCounter = 0;
 // Temp variables to create messages and compound strings
-char tmpMsg[341];
 char tmpMsg0[101];
+char tmpMsg[341];
 // Flag that controls when we go live. 
 //  0 = Go Live cycle off. 1 = Go Live; 2 = Go Live with retain messages;
 int goLive = 2;
@@ -558,8 +656,14 @@ int resetDelay = 0;
   boolean otaUpdating = false;
 #endif
 #ifdef MQTT_DISCOVERY
+  // Auto discovery sent flag
   boolean discovered = false;
+  // Auto discovery Instance pointer
+  int discInst = 0;
+  // Auto discovery Action pointer
+  int discActn = 0;
 #endif
+
 
 /* -------------------------------------------------------------------------------------------- 
    Network variables
@@ -591,8 +695,6 @@ int mqttEventCtr = 0;
 // Pending MQTT events
 unsigned int mqttBusy0 = 0;
 unsigned long mqttTmr0 = 0;
-// MQTT Retain Flag
-boolean retain = true;
 // MQTT Retain messge counter
 int retainCnt = 0;
 // Re-subscribe counter
@@ -610,32 +712,17 @@ bool buffRet[BUFFER_SIZE];
 int buffStat = 0;
 int buffPub = 0;
 int buffLim = BUFFER_SIZE;
+// Messages in transit
+uint16_t transit[IN_TRANSIT];
+int transitTic[IN_TRANSIT];
+bool transitBussy = false;
+
 
 /* -------------------------------------------------------------------------------------------- 
    Light Configuration
    -------------------------------------------------------------------------------------------- */
-// Transition speed to turn ON
-int transitionOn = CONFIG_TRANSITION_ON;
-// Transition speed to turn OFF
-int transitionOff = CONFIG_TRANSITION_OFF;
 // Dimm edges speed
 int edgeSpeed = 10;
-// Device mode (true = Dimmer; false = switch)
-boolean LgtMode = CONFIG_LGT_MODE;
-// Light 1 mode (true = Dimmer; false = switch)
-boolean Lgt1Dimm = CONFIG_LGT1_DIMM;
-// Light 1 transitions
-boolean Lgt1Trns = CONFIG_LGT1_TRNS;
-// Min. Power % for Light 1
-int minPow1 = CONFIG_MIN_POW1;
-#ifdef DOUBLE_DIMMER
-  // Light 2 mode (true = Dimmer; false = switch)
-  boolean Lgt2Dimm = CONFIG_LGT2_DIMM;
-  // Light 2 transitions
-  boolean Lgt2Trns = CONFIG_LGT2_TRNS;
-  // Min. Power % for Light 2
-  int minPow2 = CONFIG_MIN_POW2;
-#endif
 
 /* -------------------------------------------------------------------------------------------- 
    AC Frequency detection
@@ -697,85 +784,64 @@ unsigned long cycleTic = TIC_60_CYCLE;
 // Number of tics for the last portion of the half cycle where the TRIAC signal should be off
 unsigned long offTic = TIC_60_OFF;
 
+
 /* -------------------------------------------------------------------------------------------- 
    Dimmer operation and control
    -------------------------------------------------------------------------------------------- */
-// Trigger Timer 1; Trigger first set of TRIACs
-unsigned long tmr1 = 0;
-// Trigger Timer 2; Trigger second set of TRIACs
-unsigned long tmr2 = 0;
+// Trigger Timers; Trigger TRIACs
+unsigned long tmr[INSTANCE_NUM];
 // Trigger Timer 3; Turn off triacs
-unsigned long tmr3 = 0;
+unsigned long tmrOff = 0;
 // Trigger Timer 4; Overflow Timer till next cycle
-unsigned long tmr4 = 0;
-// Trigger indicator (Indicates which triacs will be triggered and the sequence)
+unsigned long tmrOvf = 0;
+// Trigger indicator (Indicates how many TRIACs will be triggered)
 int trigger = 0;
+// Trigger flag for each step
+int trig[INSTANCE_NUM];
 // Trigger sequence counter
 int trigSeq = 0;
-// Count events at the edge of the brightness range for light 1
-int edgeCntr1 = 0;
-// Count events at the edge of the brightness range for light 2
-int edgeCntr2 = 0;
 // Zero Cross Pulse debounce timer
 static unsigned long zcLast = 0;
 // Missed Zero Cross Pulse counter
 int zcSkip = 0;
 
+
 /* -------------------------------------------------------------------------------------------- 
-   Triac definitions and control
+   Dimmer Instance definitions and control
    -------------------------------------------------------------------------------------------- */
-// Status for Light 1
-boolean T1State = false;
-// Current brightness
-int T1Bright = 100;
-// Light 1 Dimming direction
-boolean T1Direction = false;
-// Target power value (10 - 100)%
-int T1Power = 100;
-// Current light 1 power value
-int T1Value = 0;
-// Light 1 transition speed control
-int T1Counter = 0;
-// Duty Cycle value for light 1 in segments
-int T1DuCy = 0;
-#ifdef DOUBLE_DIMMER
-  // Status for Light 2
-  boolean T2State = false;
-  // Current brightness
-  int T2Bright = 100;
-  // Light 2 Dimming direction
-  boolean T2Direction = false;
-  // Target power value (5 - 100)%
-  int T2Power = 100;
-  // Current light 2 power value
-  int T2Value = 0;
-  // Light 2 transition speed control
-  int T2Counter = 0;
-  // Duty Cycle value for light 2 in segments
-  int T2DuCy = 0;
-#endif
+struct DimmerInst {
+  boolean tState;     // State for Light
+  boolean tDirection; // Dimming direction
+  boolean iStatus;    // LED indicator status
+  unsigned long tTmr; // Triger timer
+  int tBright;        // Current brightness
+  int tPower;         // Target power value (Min - 100)%
+  int tValue;         // Current light power value
+  int tCntr;          // Light transition speed control
+  int tTransition;    // Transition speed
+  int tPin;           // Triac Pin
+  int iPin;           // Indicator Pin
+  int bPin;           // Button Pin
+  int eCntr;          // Light repetition counter at the edge of dimmable range
+};
+DimmerInst inst[INSTANCE_NUM];
+
 
 /* -------------------------------------------------------------------------------------------- 
    LED Configuration
    -------------------------------------------------------------------------------------------- */
-// LED bright level (PWM)
-int LedBright = CONFIG_LED_BRIGHT;
-// LED dimm level (PWM)
-int LedDimm = CONFIG_LED_DIMM;
-// LED default status
-boolean LedDefault = true;
+// LED bright level 
+int LedBright = 100;
+// LED dimm level
+int LedDimm = 25;
 // LEDs status
 boolean ledsState = false;
 // LED PWM brightness control
 unsigned long LedPwm = 0;
 // LED PWM counter overflow control
 unsigned long LedOvf = 0;
-// LED indicator status for Light 1
-boolean Led1Status = true;
-#ifdef DOUBLE_DIMMER
-  // LED indicator status for Light 2
-  boolean Led2Status = true;
-#endif
+// LED indicator brightness
+boolean LedBrgt = true;
 
 /* -------------------------------------------------------------------------------------------- 
    Debug information
@@ -802,25 +868,6 @@ boolean Led1Status = true;
   unsigned long aliveCounter3;
 #endif
 
-/* -------------------------------------------------------------------------------------------- 
-   Doble click and multi click
-   -------------------------------------------------------------------------------------------- */
-
-#ifdef MULT_CLICK
-  // Double click counter
-  int multiClickCnt = 0;
-  
-  // Double click timer
-  unsigned long multiClickTmr = 0;
-  
-  #ifdef DOUBLE_DIMMER
-    // Double click counter for button 2
-    int multiClickCnt2 = 0;
-    
-    // Double click timer for button 2
-    unsigned long multiClickTmr2 = 0;
-  #endif
-#endif
 
 /* -------------------------------------------------------------------------------------------- 
    Objects
@@ -833,6 +880,7 @@ AsyncMqttClient mqttClient;
 
 // Timers
 Ticker ticker;
+
 
 /* --------------------------------------------------------------------------------------------
    Function definitions
@@ -851,7 +899,7 @@ void mqttPublish (int tIndex, int instance, const char* payload, bool useBuffer 
    It also calculates the mid point of thre ZC pulse. The mid point is used as the reference to
    trigger TRIACs.
 *********************************************************************************************** */
-void ICACHE_RAM_ATTR zeroCrossSetup () {
+void IRAM_ATTR zeroCrossSetup () {
   ////////////////////////////////////////////////////////////////////////////////
   // Get timer and interrupt state
   ////////////////////////////////////////////////////////////////////////////////
@@ -865,7 +913,7 @@ void ICACHE_RAM_ATTR zeroCrossSetup () {
     return;
   }
   ////////////////////////////////////////////////////////////////////////////////
-  // Detetc the frequency
+  // Detect the frequency
   ////////////////////////////////////////////////////////////////////////////////
   // On the RISING edge of the pulse, calculate frequency
   if (zcpEdge == HIGH) {
@@ -893,8 +941,9 @@ void ICACHE_RAM_ATTR zeroCrossSetup () {
         // Reset timers
         frecCntr50 = 0;
         frecCntr60 = 0;
+        frecCntr0 = 0;
         #ifdef DEBUG_MODE
-          sprintf(tmpMsg0, "Bad frequency tics = %d", cycleP);
+          sprintf(tmpMsg0, "Bad frequency tics = %ld", cycleP);
           writeDebug(tmpMsg0, 3);
         #endif
       } 
@@ -938,7 +987,7 @@ void ICACHE_RAM_ATTR zeroCrossSetup () {
     pulseDbnc = false;
     // Count pulse duration events in 5 ranges. This is done because in installations with a 
     // noisy AC signal and faulty or no ground, some of the ZC pulses may have small 
-    // variations and may not be detected as it looks like debounce noise.
+    // variations and may not be detected, as it looks like debounce noise.
     if (pulseNum < 1 || (zcW > pulseS1 && zcW < pulseE1)) {
       if (pulseNum < 1) {
         pulseS1 = zcW * 0.95;
@@ -959,14 +1008,14 @@ void ICACHE_RAM_ATTR zeroCrossSetup () {
         pulseE3 = zcW * 1.05;
         pulseNum = 3;
       }
-      ++pulseCnt2;
+      ++pulseCnt3;
     } else if(pulseNum < 4 || (zcW > pulseS4 && zcW < pulseE4)) {
       if (pulseNum < 4) {
         pulseS4 = zcW * 0.95;
         pulseE4 = zcW * 1.05;
         pulseNum = 4;
       }
-      ++pulseCnt2;
+      ++pulseCnt4;
     } else if(pulseNum < 5 || (zcW > pulseS5 && zcW < pulseE5)) {
       if (pulseNum < 5) {
         pulseS5 = zcW * 0.95;
@@ -980,8 +1029,14 @@ void ICACHE_RAM_ATTR zeroCrossSetup () {
     // If most pulses are detected as noise, restart detection
     if (pulseCnt0 > SETUP_EVENTS) {
       pulseNum = 0;
+      pulseCnt0 = 0;
+      pulseCnt1 = 0;
+      pulseCnt2 = 0;
+      pulseCnt3 = 0;
+      pulseCnt4 = 0;
+      pulseCnt5 = 0;
       #ifdef DEBUG_MODE
-        sprintf(tmpMsg0, "Out of range ZC pulse = %d ", zcW);
+        sprintf(tmpMsg0, "Out of range ZC pulse = %ld ", zcW);
         writeDebug(tmpMsg0, 3);
       #endif
     } 
@@ -990,7 +1045,7 @@ void ICACHE_RAM_ATTR zeroCrossSetup () {
       // Get the mid of the ZC pulse with the mean of the width
       pulseH = (zcW / 2 + (zcW * .1));
       #ifdef DEBUG_MODE
-        sprintf(tmpMsg0, "ZC pulse width detected = %d ", zcW);
+        sprintf(tmpMsg0, "ZC pulse width detected = %ld ", zcW);
         writeDebug(tmpMsg0, 3);
       #endif
     }
@@ -1002,320 +1057,197 @@ void ICACHE_RAM_ATTR zeroCrossSetup () {
 
    Detects the Zero Cross signal and resets the cycle timers to trigger the TRIACs.
 *********************************************************************************************** */
-void ICACHE_RAM_ATTR zeroCross () {
+void IRAM_ATTR zeroCross () {
   ////////////////////////////////////////////////////////////////////////////////
   // Debounce
   ////////////////////////////////////////////////////////////////////////////////
   unsigned long now = micros();
   if((unsigned long)(now - zcLast) < ZC_DEBOUNCE) return;
-  zcLast = now;
   ////////////////////////////////////////////////////////////////////////////////
   // Calculate TRIAC triggers
   ////////////////////////////////////////////////////////////////////////////////
   // Stop other interruptions during ZC calculations
   noInterrupts();
+  zcLast = now;
   // Reset the missed ZC pulse counter
   zcSkip = 0;
-  // Reset timers
-  tmr1 = 0;
-  tmr2 = 10;
-  tmr3 = 10;
-  // Reset triggers
-  unsigned long trig1 = 0;
-  #ifdef DOUBLE_DIMMER
-    unsigned long trig2 = 0;
-  #endif
+  // Loop variables
+  bool chg = false;
+  bool cht = false;
+  unsigned long ttm[INSTANCE_NUM];
+  int tt[INSTANCE_NUM];
+  int bt = 1;
+  int i;
   ////////////////////////////////////////////////////////////////////////////////
-  // Calc Triac 1
+  // Calc Triac
   ////////////////////////////////////////////////////////////////////////////////
-  if(Lgt1Dimm) {
-    // Dimmer 1 is enabled
-    if (T1State) {
-      // Light 1 is ON
-      if (T1Value < T1Power) {
-        if (transitionOn == 0) {
-          T1Value = T1Power;
-          T1DuCy = powerToSegment(T1Value);
-        } else {
-          // Fade in
-          --T1Counter;
-          if (T1Counter <= 0) {
-            T1Counter = transitionOn;
-            ++T1Value;
-            T1DuCy = powerToSegment(T1Value);
-          }
+  for (i = 0; i < INSTANCE_NUM; i++) {
+    cht = false;
+    // For transition 0, jump to the target brightness
+    if (inst[i].tTransition == 0) {
+      if (inst[i].tState) {
+        if (inst[i].tValue != inst[i].tBright || inst[i].tPower == 0) {
+          inst[i].tValue = inst[i].tBright;
+          cht = true;
         }
-      } else if (T1Value > T1Power) {
-        if (transitionOn == 0) {
-          T1Value = T1Power;
-          T1DuCy = powerToSegment(T1Value);
-        } else {
-          // Fade out
-          --T1Counter;
-          if (T1Counter <= 0) {
-            T1Counter = transitionOn;
-            --T1Value;
-            T1DuCy = powerToSegment(T1Value);
-          }
-        }
+      } else if (inst[i].tValue != 0 || inst[i].tPower != 0) {
+        inst[i].tValue = 0;
+        cht = true;
       }
+    }
+    // The current value is higher than the target brightness or the light is off
+    else if (inst[i].tValue > inst[i].tBright || !inst[i].tState) {
+      // Fade out
+      if (inst[i].tValue > 0) {
+        --inst[i].tCntr;
+        if (inst[i].tCntr <= 0) {
+          inst[i].tCntr = inst[i].tTransition;
+          --inst[i].tValue;
+          cht = true;
+        }
+      } else if (inst[i].tPower != 0) {
+        inst[i].tPower = 0;
+        cht = true;
+      }
+    }
+    // The current value is lower than the target power
+    else if (inst[i].tValue < inst[i].tBright) {
+      // Fade in
+      --inst[i].tCntr;
+      if (inst[i].tCntr <= 0) {
+        inst[i].tCntr = inst[i].tTransition;
+        ++inst[i].tValue;
+        cht = true;
+      }
+    } else if (inst[i].tPower == 0) {
+      cht = true;
+    }
+    if (cht) {
+      if (!inst[i].tState && inst[i].tValue <= 0) {
+        inst[i].tPower = 0;
+        inst[i].tTmr = SEGMENTS * frecTic + pulseH;
+      } else {
+        inst[i].tPower = getPower(inst[i].tValue, i);
+        inst[i].tTmr = powerToSegment(inst[i].tPower) * frecTic + pulseH;
+      }
+      chg = true;
+    }
+    // Calculate timers
+    ttm[i] = inst[i].tTmr;
+    if (inst[i].tPower >= dconfig.iMinPow[i]) {
+      tt[i] = bt;
     } else {
-      // Light 1 is OFF
-      if (T1Value > minPow1) {
-        if (transitionOff == 0) {
-          T1Value = 0;
-          T1DuCy = powerToSegment(T1Value);
-        } else {
-          // Fade out
-          --T1Counter;
-          if (T1Counter <= 0) {
-            T1Counter = transitionOff;
-            --T1Value;
-            T1DuCy = powerToSegment(T1Value);
-          }
-        }
-      } else {
-        T1Value = 0;
-        T1DuCy = SEGMENTS;
-      }
+      tt[i] = 0;
     }
-    // Calculate trigger timer
-    if (T1Value >= minPow1) {
-      trig1 = T1DuCy * frecTic + pulseH;
-    }
+    bt <<= 1;
   }
-  // If light is ON and Dimming is disabled, just turn TRIAC ON after zeroCross
-  else if (T1State) {
-    T1Value = 100;
-    trig1 = pulseH;
-  }
-  // Light is off
-  else {
-    T1Value = 0;
-  }
-  #ifdef DOUBLE_DIMMER
+  if (chg) {
     ////////////////////////////////////////////////////////////////////////////////
-    // Calc Triac 2
+    // Sort
     ////////////////////////////////////////////////////////////////////////////////
-    if(Lgt2Dimm) {
-      // Dimmer 2 is enabled
-      if (T2State) {
-        // Light 2 is ON
-        if (T2Value < T2Power) {
-          if (transitionOn == 0) {
-            T2Value = T2Power;
-            T2DuCy = powerToSegment(T2Value);
-          } else {
-            // Fade in
-            --T2Counter;
-            if (T2Counter <= 0) {
-              T2Counter = transitionOn;
-              ++T2Value;
-              T2DuCy = powerToSegment(T2Value);
-            }
-          }
-        } else if (T2Value > T2Power) {
-          if (transitionOn == 0) {
-            T2Value = T2Power;
-            T2DuCy = powerToSegment(T2Value);
-          } else {
-            // Fade out
-            --T2Counter;
-            if (T2Counter <= 0) {
-              T2Counter = transitionOn;
-              --T2Value;
-              T2DuCy = powerToSegment(T2Value);
-            }
-          }
-        }
-      } else {
-        // Light 2 is OFF
-        if (T2Value > minPow2) {
-          if (transitionOff == 0) {
-            T2Value = 0;
-            T2DuCy = powerToSegment(T2Value);
-          } else {
-            // Fade out
-            --T2Counter;
-            if (T2Counter <= 0) {
-              T2Counter = transitionOff;
-              --T2Value;
-              T2DuCy = powerToSegment(T2Value);
-            }
-          }
-        } else {
-          T2Value = 0;
-          T2DuCy = SEGMENTS;
-        }
+    unsigned long m;
+    int n;
+    int j;
+    for (i = 1; i < INSTANCE_NUM; i++) {
+      m = ttm[i];
+      n = tt[i];
+      for (j = i - 1; (j >= 0) && (m < ttm[j]); j--) {
+        ttm[j + 1] = ttm[j];
+        tt[j + 1] = tt[j];
       }
-      // Calculate trigger timer
-      if (T2Value >= minPow2) {
-        trig2 = T2DuCy * frecTic + pulseH;
+      ttm[j + 1] = m;
+      tt[j + 1] = n;
+    }
+    ////////////////////////////////////////////////////////////////////////////////
+    // Calc duplicates
+    ////////////////////////////////////////////////////////////////////////////////
+    for (int i = (INSTANCE_NUM - 1); i > 0; i--) {
+      if (ttm[i] != ttm[i - 1]) continue;
+      tt[i] |= tt[i - 1];
+      tt[i - 1] = 0;
+    }
+    ////////////////////////////////////////////////////////////////////////////////
+    // Calc timers
+    ////////////////////////////////////////////////////////////////////////////////
+    unsigned long ltm = 0;
+    trigger = 0;
+    for (i = 0; i < INSTANCE_NUM; i++) {
+      if (tt[i] > 0) {
+        tmr[trigger] = ttm[i] - ltm;
+        trig[trigger] = tt[i];
+        ltm = ttm[i];
+        ++trigger;
       }
-    } 
-    // If light is ON and Dimming is disabled, just turn TRIAC ON after zeroCross
-    else if (T2State) {
-      T2Value = 100;
-      trig2 = pulseH;
     }
-    // Light is off
-    else {
-      T2Value = 0;
+    for (i = trigger; i < INSTANCE_NUM; i++) {
+      trig[i] = 0;
     }
-  #endif
+    if (trigger > 0) {
+      tmrOff = cycleTic - ltm - offTic;
+    } else {
+      tmr[0] = pulseH + frecTic;
+      tmrOff = cycleTic - tmr[0] - offTic;
+    }
+    tmrOvf = offTic + tmr[0];
+  }
   ////////////////////////////////////////////////////////////////////////////////
-  // Calc timers
-  ////////////////////////////////////////////////////////////////////////////////
-  trigSeq = 0;
-  #ifdef DOUBLE_DIMMER
-    if (trig1 > trig2) {
-      // Trigger T2 then T1
-      if (trig2 > 0) {
-        trigger = 5;
-        tmr1 = trig2;
-        tmr2 = trig1 - trig2;
-        tmr3 = cycleTic - trig1 - offTic;
-      }
-      // Trigger T1 only
-      else {
-        trigger = 1;
-        tmr1 = trig1;
-        tmr2 = cycleTic - trig1 - offTic;
-      }
-    } else if (trig2 > trig1) {
-      // Trigger T1 then T2
-      if (trig1 > 0) {
-        trigger = 4;
-        tmr1 = trig1;
-        tmr2 = trig2 - trig1;
-        tmr3 = cycleTic - trig2 - offTic;
-      } 
-      // Trigger T2 only
-      else {
-        trigger = 2;
-        tmr1 = trig2;
-        tmr2 = cycleTic - trig2 - offTic;
-      }
-    }
-    // Trigger T1 and T2
-    else if(trig1 > 0) {
-      trigger = 3;
-      tmr1 = trig1;
-      tmr2 = cycleTic - trig1 - offTic;
-    } 
-    // Both lights are off
-    else {
-      trigger = 0;
-      tmr1 = pulseH + frecTic;
-      tmr2 = cycleTic - tmr1 - offTic;
-    }
-  #else
-    // Trigger T1
-    if(trig1 > 0) {
-      trigger = 1;
-      tmr1 = trig1;
-      tmr2 = cycleTic - trig1 - offTic;
-    }
-    // Light is off
-    else {
-      trigger = 0;
-      tmr1 = pulseH + frecTic;
-      tmr2 = cycleTic - tmr1 - offTic;
-    }
-  #endif
-  // Timer 4 is set to trigger TRIACS in the next cycle in case the ZC pulse is missed to 
-  // prevent flickering
-  tmr4 = offTic + tmr1;
-  trigSeq = 0;
   // Restart interruptions and set the timer for the first step
+  ////////////////////////////////////////////////////////////////////////////////
+  trigSeq = 0;
   interrupts();
-  timer1_write(tmr1);
+  timer1_write(tmr[0]);
 }
 
-#ifdef DOUBLE_DIMMER
 /** **********************************************************************************************
    Trigger TRIACs
 
    Timer interrupt used to trigger TRIACs.
-   Each half cycle of the AC signal is divided in 4 steps:
-   1 - Time between the middle of the Zero Cross pulse and the first set of TRIACs. If both 
+   Each half cycle of the AC signal is divided in steps:
+   1 - Time between the middle of the Zero Cross pulse and the first set of TRIACs. If all 
        TRIACs have the same power level, the will be triggered.
-   2 - Trigger the second set of TRIACs. If both TRIAcs are triggered in step 1, this step is 
-       skipped.
+   2 - Trigger the second set of TRIACs. Continue Triggering TRIACs.
    3 - Turn off trigger signal for all TRIACs / Sets the timer for the next half cycle.
    4 - Time between the Off time and the first set of TRIACs in the next half cycle (Step 1).
        This allows to continue even if a Zero Cross pulse is not detected, preventing flickering.
        Timer 4 depends on the AC frequency.
 *********************************************************************************************** */
-void ICACHE_RAM_ATTR triggerTriacs () {
+void IRAM_ATTR triggerTriacs () {
   // If lights are off, turn off TRIAC signals
-  if (T1Value == 0) {
-    digitalWrite(PIN_TM1, LOW);
+  for (int i = 0; i < INSTANCE_NUM; i++) {
+    if (inst[i].tPower > 0) continue;
+    digitalWrite(inst[i].tPin, LOW);
   }
-  if (T2Value == 0) {
-    digitalWrite(PIN_TM2, LOW);
-  }
-  // If both lights are off, we are done here.
-  if(trigger == 0) return;
-  // Increase the trigger sequence
-  ++trigSeq;
-  // Step 1
-  if (trigSeq == 1) {
-    // Set timer for step 2/3
-    timer1_write(tmr2);
-    // Trigger TRIAC 1
-    if (trigger == 1) {
-      digitalWrite(PIN_TM1, HIGH);
-      // Jump to step 3
-      ++trigSeq;
-    }
-    // Trigger TRIAC 2
-    else if (trigger == 2 ) {
-      digitalWrite(PIN_TM2, HIGH);
-      // Jump to step 3
-      ++trigSeq;
-    } 
-    // Trigger TRIAC 1 and TRIAC 2
-    else if (trigger == 3 ) {
-      digitalWrite(PIN_TM1, HIGH);
-      digitalWrite(PIN_TM2, HIGH);
-      // Jump to step 3
-      ++trigSeq;
-    }
-    // Trigger TRIAC 1
-    else if (trigger == 4 ) {
-      digitalWrite(PIN_TM1, HIGH);
-    } 
-    // Trigger TRIAC 2
-    else if (trigger == 5 ) {
-      digitalWrite(PIN_TM2, HIGH);
-    }
-  }
-  // Step 2
-  else if(trigSeq == 2) {
-    // Set timer for step 3
-    timer1_write(tmr3);
-    // Trigger TRIAC 2
-    if (trigger == 4) {
-      digitalWrite(PIN_TM2, HIGH);
-    }
-    // Trigger TRIAC 1
-    else if (trigger == 5) {
-      digitalWrite(PIN_TM1, HIGH);
-    }
-  }
-  // Step 3
-  else if(trigSeq == 3) {
+  // If all lights are off, we are done here.
+  if (trigger == 0) return;
+  // Last Step (Set timer for the next AC cycle)
+  if (trigSeq == trigger) {
     // Set timer for step 1 in the next cycle
-    timer1_write(tmr4);
+    timer1_write(tmrOvf);
     trigSeq = 0;
-    // Turn off TRIAC 1
-    if (Lgt1Dimm || !T1State) {
-      digitalWrite(PIN_TM1, LOW);
+    // Turn off TRIACs
+    for (int i = 0; i < INSTANCE_NUM; i++) {
+      if (inst[i].tPower == 0) continue;
+      digitalWrite(inst[i].tPin, LOW);
     }
-    // Turn off TRIAC 2
-    if (Lgt2Dimm || !T2State) {
-      digitalWrite(PIN_TM2, LOW);
+  } 
+  // Trigger TRIACs and set next timer
+  else {
+    int ctt = trigSeq;
+    // Increase the trigger sequence
+    ++trigSeq;
+    // Trigger TRIACs
+    int bt = 1;
+    for (int i = 0; i < INSTANCE_NUM; i++) {
+      if ((trig[ctt] & bt) > 0) {
+        digitalWrite(inst[i].tPin, HIGH);
+      }
+      bt <<= 1;
+    }
+    // Set next timer
+    if (trigSeq == trigger) {
+      timer1_write(tmrOff);
+    } else {
+      timer1_write(tmr[trigSeq]);
     }
   }
   // Count the number of times this function is executed
@@ -1324,50 +1256,11 @@ void ICACHE_RAM_ATTR triggerTriacs () {
   // turn off TRIACs
   if (zcSkip > 9) {
     trigger = 0;
+    for (int i = 0; i < INSTANCE_NUM; i++) {
+      inst[i].tPower = 0;
+    }
   }
 }
-
-#else
-/** **********************************************************************************************
-   Trigger TRIAC
-
-   Timer interrupt used to trigger the TRIAC.
-   Each half cycle of the AC signal is divided in 3 
-   1 - Time between Zero Cross signal and the TRIAC
-       Adds the half length of the Zero Cross Pulse
-   2 - Turn off trigger signal for the TRIAC / Sets the timer for the next
-       half cycle. (if the ZC pulse is not detected the triacs are triggered
-       anyway, which prevents flickering)
-   3 - Time between the Off time and the first set of TRIACs in the next cycle
-       This allows to continue even if a ZC is missed, and prevents flickering
-******************************************************************* **************************** */
-void ICACHE_RAM_ATTR triggerTriacs () {
-  // If light is off, turn off TRIAC signal
-  if (T1Value == 0) {
-    digitalWrite(PIN_TM1, LOW);
-  }
-  // If light is off, we are done here.
-  if(trigger == 0) return;
-  // Increase the trigger sequence
-  ++trigSeq;
-  if (trigSeq == 1) {
-    timer1_write(tmr2);
-    if (trigger == 1) {
-      digitalWrite(PIN_TM1, HIGH);
-    }
-  } else if(trigSeq == 2) {
-    timer1_write(tmr4);
-    if (Lgt1Dimm || !T1State) {
-      digitalWrite(PIN_TM1, LOW);
-    }
-    trigSeq = 0;
-  }
-  ++zcSkip;
-  if (zcSkip > 5) {
-    trigger = 0;
-  }
-}
-#endif
 
 /** **********************************************************************************************
    Converts power % to trigger segment
@@ -1378,6 +1271,7 @@ int powerToSegment (int v) {
   if (v < 53) {
     if (v < 24) {
       if (v <= 10) {
+        if (v <= 0) return SEGMENTS;
         // Minimum Power is 10%
         return 105;
       }
@@ -1606,18 +1500,10 @@ int powerToSegment (int v) {
    Get the Power %, from the brightness level
    
    @param bright Brightness level (0-100).
-   @param light Light bulb number [1|2].
+   @param idx Light index [0|1].
 *********************************************************************************************** */
-int getPower (int bright, int light) {
-  float sg = MIN_POW ;
-  if (light == 1) {
-    sg = minPow1;
-  }
-  #ifdef DOUBLE_DIMMER
-    else if (light == 2) {
-      sg = minPow2;
-    }
-  #endif
+int getPower (int bright, int idx) {
+  float sg = dconfig.iMinPow[idx];
   int res = bright * (100 - sg) / 100 + sg;
   return res;
 }
@@ -1636,20 +1522,20 @@ int getPower (int bright, int light) {
    @param keepLine Set to "true" to print on the same line
 *********************************************************************************************** */
 void writeDebug (const char* message, int scope, bool keepLine) {
-    if (scope == 1) {
-      Serial.print("SYS: ");
-    } else if (scope == 2) {
-      Serial.print("NET: ");
-    } else if (scope == 3) {
-      Serial.print("DIM: ");
-    } else if (scope == 4) {
-      Serial.print("MQTT: ");
-    }
-    if (keepLine) {
-      Serial.print(message);
-    } else {
-      Serial.println(message);
-    }
+  if (scope == 1) {
+    Serial.print("SYS: ");
+  } else if (scope == 2) {
+    Serial.print("NET: ");
+  } else if (scope == 3) {
+    Serial.print("DIM: ");
+  } else if (scope == 4) {
+    Serial.print("MQTT: ");
+  }
+  if (keepLine) {
+    Serial.print(message);
+  } else {
+    Serial.println(message);
+  }
 }
 #endif
 
@@ -1659,22 +1545,37 @@ void writeDebug (const char* message, int scope, bool keepLine) {
    Keep track of running time and execute periodic activities every second (aprox.)
 *********************************************************************************************** */
 void systemTimer () {
+  /////////////////////////////////////////////
+  // Validate second timer and overflow states
+  /////////////////////////////////////////////
   unsigned long cTmr = millis();
-  if ((unsigned long)(cTmr - sysMillis) < SYS_TIMER) {
+  if (sysOvfFlg && cTmr >= sysOvf) return;
+  sysOvfFlg = false;
+  if (cTmr < sysMillis && cTmr >= sysOvf) {
+    sysOvf = cTmr;
     return;
   }
+  sysMillis += SYS_TIMER;
+  // Check overflow
+  if (sysMillis < cTmr && sysMillis > 2000000) {
+    sysOvfFlg = true;
+  }
+  sysOvf = cTmr;
+  /////////////////////////////////////////////
   // One second passed
-  sysMillis = cTmr;
   ++aliveCounter;
+  /////////////////////////////////////////////
   // Count seconds without network connection
   ++resetDelay;
+  /////////////////////////////////////////////
   // Keep alive message to broker
   ++keepAlive;
   if (keepAlive >= dconfig.keepAlive) {
     keepAlive = 0;
-    mqttPublish(0, 0, "online");
+    mqttPublish(0, 0, MQTT_MSG_ALIVE);
   }
-  // Re-subscribe at 6 min intervals
+  /////////////////////////////////////////////
+  // Re-subscribe at MQTT_RESUBSCRIBE intervals (6 min. arox.)
   ++reSubscribe;
   if (reSubscribe >= MQTT_RESUBSCRIBE) {
     #ifdef DEBUG_MODE
@@ -1682,7 +1583,8 @@ void systemTimer () {
     #endif
     mqttSubscribe();
   }
-  // Go Live sequence go off after 1 minute
+  /////////////////////////////////////////////
+  // Go Live sequence go off after GO_LIVE_DURATION seconds (1 minute default)
   if (goLive == 2 && aliveCounter > GO_LIVE_DURATION) {
     goLiveOff();
   }
@@ -1690,6 +1592,23 @@ void systemTimer () {
   if (goLiveSwitch > 0 && aliveCounter > (GO_LIVE_DURATION + 30)) {
     goLiveSwitch = 0;
   }
+  /////////////////////////////////////////////
+  // Define indicators status
+  LedBrgt = false;
+  for (int i = 0; i < INSTANCE_NUM; i++) {
+    if (inst[i].tState) {
+      LedBrgt = true;
+      break;
+    }
+  }
+  /////////////////////////////////////////////
+  // Tic packets in transit
+  mqttTicTransit();
+  /////////////////////////////////////////////
+  // Trigger Auto-discovery
+  #ifdef MQTT_DISCOVERY
+    mqttDiscovery();
+  #endif
 }
 
 /** **********************************************************************************************
@@ -1710,18 +1629,31 @@ void setDeviceId () {
 *********************************************************************************************** */
 void flashLed () {
   ledsState = !ledsState;
-  if (ledsState && Led1Status) {
-    digitalWrite(PIN_LED1, HIGH);
-  } else {
-    digitalWrite(PIN_LED1, LOW);
+  for (int i = 0; i < INSTANCE_NUM; i++) {
+    digitalWrite(inst[i].iPin, ((ledsState && inst[i].iStatus) ? HIGH : LOW) );
   }
-  #ifdef DOUBLE_DIMMER
-    if (ledsState && Led2Status) {
-      digitalWrite(PIN_LED2, HIGH);
-    } else {
-      digitalWrite(PIN_LED2, LOW);
+}
+
+/** **********************************************************************************************
+   Handle LED indicators
+*********************************************************************************************** */
+void handleLed () {
+  unsigned long lTmr = micros();
+  if (lTmr > LedPwm || lTmr < LedOvf) {
+    flashLed();
+    // LEDs turned ON
+    if (ledsState) {
+      // If the light(s) are on, keep the LEDs on for LedBright
+      // otherwise for LedDimm us
+      LedPwm = lTmr + ((LedBrgt) ? LedBright : LedDimm);
     }
-  #endif
+    // LED turned OFF
+    else {
+      // Keep the LEDs off for the rest of the PWM cycle
+      LedPwm = lTmr + (LED_PWM - ((LedBrgt) ? LedBright : LedDimm));
+    }
+  }
+  LedOvf = lTmr;
 }
 
 /** **********************************************************************************************
@@ -1754,19 +1686,20 @@ boolean netCheck () {
   // Check WiFi fail counters
   //////////////////////////////////////////
   if (wifiRstCtr > WIFI_RESTART_REBOOT || wifiConnCtr > WIFI_CONNECT_REBOOT) {
-    // Reboot only if a network connectio has been detected since boot and the lights are off
-    while (canReboot) {
-      #ifdef DOUBLE_DIMMER
-        if (T1State || T2State) break;
-      #else
-        if (T1State) break;
-      #endif
-      #ifdef SAVE_ON_RESET
-        // Save the parameters that triggered the reset process
-        saveStatus();
-      #endif
-      // Reboot
-      ESP.restart();
+    // Reboot only if a network connection has been detected since boot and the lights are off
+    if (canReboot) {
+      bool rbt = true;
+      for (int i = 0; i < INSTANCE_NUM; i++) {
+        if (inst[i].tState) rbt = false; 
+      }
+      if (rbt) {
+        #ifdef SAVE_ON_RESET
+          // Save the parameters that triggered the reset process
+          saveStatus();
+        #endif
+        // Reboot
+        ESP.restart();
+      }
     }
   }
   //////////////////////////////////////////
@@ -1909,27 +1842,10 @@ void goLiveOff () {
   #ifdef DEBUG_MODE
     writeDebug("Go Live sequence off.", 3);
   #endif
+  if (goLive == 2) {
+    mqttUnSubscribeRetain();
+  }
   goLive = 0;
-  if (mqttStatus) {
-    goLiveSwitch = 0;
-    for (int i = 0; i < INSTANCE_NUM; i++) {
-      ++goLiveSwitch;
-      mqttClient.unsubscribe(mqttTopics[i].state);
-    }
-  }
-}
-
-/** **********************************************************************************************
-   Force a disconnect from MQTT services
-*********************************************************************************************** */
-void mqttDisconnect () {
-  if (mqttClient.connected()) {
-    mqttClient.disconnect(true);
-  }
-  mqttStatus = false;
-  mqttConnecting = false;
-  mqttTmr0 = 0;
-  mqttEventCtr = 0;
 }
 
 /** **********************************************************************************************
@@ -1942,25 +1858,34 @@ void mqttDefineTopics () {
   sprintf(tmpMsg, "%s/%s/%s/state", dconfig.namespc, INST_TYPE, dconfig.myId);
   strlcpy(topicState, tmpMsg, sizeof(topicState));
   // Device SET topic
-  #ifdef MQTT_CONFIG
-    sprintf(tmpMsg, "%s/%s/%s/set", dconfig.namespc, INST_TYPE, dconfig.myId);
-    strlcpy(topicSet, tmpMsg, sizeof(topicSet));
+  sprintf(tmpMsg, "%s/%s/%s/set", dconfig.namespc, INST_TYPE, dconfig.myId);
+  strlcpy(topicSet, tmpMsg, sizeof(topicSet));
+  #ifdef DBL_CLICK
+    // Device ACTION topic
+    //sprintf(tmpMsg, "%s/%s/action", dconfig.namespc, deviceId);
+    sprintf(tmpMsg, "%s/%s/action", dconfig.namespc, dconfig.myId);
+    strlcpy(topicAction, tmpMsg, sizeof(topicAction));
   #endif
   // Instances
   for (int i = 0; i < INSTANCE_NUM; i++) {
     // Define the instance Unique ID
-    sprintf(tmpMsg0, "M%s%0d", deviceId, (i + 1));
+    sprintf(tmpMsg0, "U%s%d", deviceId, (i + 1));
     strlcpy(mqttTopics[i].uid, tmpMsg0, sizeof(mqttTopics[i].uid));
     // Define the instance Name
-    if (strlen(mqttTopics[i].uname) > 0) {
-      sprintf(tmpMsg0, "%s", mqttTopics[i].uname);
+    if (strlen(dconfig.iName[i]) > 0) {
+      strlcpy(mqttTopics[i].uname, dconfig.iName[i], sizeof(mqttTopics[i].uname));
+    } else {
+      sprintf(tmpMsg0, "N%s%d", deviceId, (i + 1));
+      strlcpy(mqttTopics[i].uname, tmpMsg0, sizeof(mqttTopics[i].uname));
     }
     // Instance STATE topic
-    sprintf(tmpMsg, "%s/%s/%s/state", dconfig.namespc, INST_TYPE, tmpMsg0);
-    strlcpy(mqttTopics[i].state, tmpMsg, sizeof(mqttTopics[i].state));
+    if (snprintf(tmpMsg, sizeof(tmpMsg), "%s/%s/%s/state", dconfig.namespc, INST_TYPE, mqttTopics[i].uname) >= 0) {
+      strlcpy(mqttTopics[i].state, tmpMsg, sizeof(mqttTopics[i].state));
+    }
     // Instance SET topic
-    sprintf(tmpMsg, "%s/%s/%s/set", dconfig.namespc, INST_TYPE, tmpMsg0);
-    strlcpy(mqttTopics[i].set, tmpMsg, sizeof(mqttTopics[i].set));
+    if (snprintf(tmpMsg, sizeof(tmpMsg), "%s/%s/%s/set", dconfig.namespc, INST_TYPE, mqttTopics[i].uname) >= 0) {
+      strlcpy(mqttTopics[i].set, tmpMsg, sizeof(mqttTopics[i].set));
+    }
   }
 }
 
@@ -1969,6 +1894,13 @@ void mqttDefineTopics () {
 *********************************************************************************************** */
 void mqttBegin () {
   if (mqttSetup) { return; }
+  for (int i = 0; i < IN_TRANSIT; i++) {
+    transit[i] = 0;
+    transitTic[i] = 0;
+  }
+  #ifdef MQTT_DISCOVERY
+    mqttReDiscover();
+  #endif
   mqttClient.onConnect(mqttConnectCallback);
   mqttClient.onDisconnect(mqttDisconnectCallback);
   mqttClient.onSubscribe(mqttSubscribeCallback);
@@ -2047,11 +1979,11 @@ void mqttSubscribeCallback (uint16_t packetId, uint8_t qos) {
     // Request last known state on first go-live
     if (goLive == 1) {
       goLive = 0;
-      mqttPublish(0, 0, "golive");
+      mqttPublish(0, 0, MQTT_MSG_GOLIVE);
     } else {
-      mqttPublish(0, 0, "online");
+      mqttPublish(0, 0, MQTT_MSG_ALIVE);
       if (goLive == 0) {
-        mqttPublishStatus(0);
+        mqttPublishStatus(-1);
       }
     }
   }
@@ -2069,9 +2001,8 @@ void mqttUnsubscribeCallback (uint16_t packetId) {
   if (goLiveSwitch > 0) {
     --goLiveSwitch;
   }
-  if (goLiveSwitch == 0) {
-    mqttSubscribe();
-  }
+  if (goLiveSwitch > 0) return;
+  mqttSubscribe();
 }
 
 /** **********************************************************************************************
@@ -2084,6 +2015,71 @@ void mqttPublishCallback(uint16_t packetId) {
     writeDebug("Published. ", 4, true);
     Serial.println(packetId);
   #endif
+  mqttUnTransit(packetId);
+  mqttEventCtr = 0;
+}
+
+/** **********************************************************************************************
+   MQTT Register a packet in transit
+   
+   @param pId Packet ID.
+*********************************************************************************************** */
+void mqttTransit (uint16_t pId) {
+  int cnt = 0;
+  for (int i = 0; i < IN_TRANSIT; i++) {
+    if (transit[i] > 0) {
+      ++cnt;
+      continue;
+    }
+    transit[i] = pId;
+    transitTic[i] = 0;
+    ++cnt;
+    break;
+  }
+  if (cnt >= IN_TRANSIT) {
+    transitBussy = true;
+  }
+}
+
+/** **********************************************************************************************
+   MQTT Un-register a packet in transit
+   
+   @param pId Packet ID.
+*********************************************************************************************** */
+void mqttUnTransit (uint16_t pId) {
+  for (int i = 0; i < IN_TRANSIT; i++) {
+    if (transit[i] != pId) continue;
+    transit[i] = 0;
+    transitTic[i] = 0;
+    transitBussy = false;
+  }
+}
+
+/** **********************************************************************************************
+   MQTT Tic packets in transit
+*********************************************************************************************** */
+void mqttTicTransit () {
+  for (int i = 0; i < IN_TRANSIT; i++) {
+    if (transit[i] == 0) continue;
+    ++transitTic[i];
+    if (transitTic[i] > 5) {
+      transit[i] = 0;
+      transitTic[i] = 0;
+      transitBussy = false;
+    }
+  }
+}
+
+/** **********************************************************************************************
+   Force a disconnect from MQTT services
+*********************************************************************************************** */
+void mqttDisconnect () {
+  if (mqttClient.connected()) {
+    mqttClient.disconnect(true);
+  }
+  mqttStatus = false;
+  mqttConnecting = false;
+  mqttTmr0 = 0;
   mqttEventCtr = 0;
 }
 
@@ -2092,13 +2088,10 @@ void mqttPublishCallback(uint16_t packetId) {
 *********************************************************************************************** */
 void mqttSubscribe () {
   if (!mqttStatus) return;
-  #ifdef MQTT_DISCOVERY
-    mqttDiscovery();
-  #endif
   reSubscribe = 0;
   unsigned long cTmr = millis();
   #ifdef MQTT_CONFIG
-    mqttClient.subscribe(topicSet, 0);
+    mqttClient.subscribe(topicSet, MQTT_SUB_QOS);
     ++mqttBusy0;
     mqttTmr0 = cTmr;
     #ifdef DEBUG_MODE
@@ -2107,7 +2100,7 @@ void mqttSubscribe () {
     #endif
   #endif
   for (int i = 0; i < INSTANCE_NUM; i++) {
-    mqttClient.subscribe(mqttTopics[i].set, 0);
+    mqttClient.subscribe(mqttTopics[i].set, MQTT_SUB_QOS);
     ++mqttBusy0;
     mqttTmr0 = cTmr;
     #ifdef DEBUG_MODE
@@ -2134,6 +2127,22 @@ void mqttSubscribeRetain () {
 }
 
 /** **********************************************************************************************
+   MQTT Un-subscribe from retained topics
+*********************************************************************************************** */
+void mqttUnSubscribeRetain () {
+  if (!mqttStatus) return;
+  goLiveSwitch = 0;
+  for (int i = 0; i < INSTANCE_NUM; i++) {
+    ++goLiveSwitch;
+    mqttClient.unsubscribe(mqttTopics[i].state);
+    #ifdef DEBUG_MODE
+      writeDebug("Un-subscribe to Light STATE topic: ", 4, true);
+      writeDebug(mqttTopics[i].state);
+    #endif
+  }
+}
+
+/** **********************************************************************************************
    Publish a message to MQTT Broker
 
    @param tIndex Topic index (0 = device state; 1 = instance state; 2 = doubleClick)
@@ -2143,7 +2152,7 @@ void mqttSubscribeRetain () {
 *********************************************************************************************** */
 void mqttPublish (int tIndex, int instance, const char* payload, bool useBuffer) {
   char topic[81];
-  bool ret = retain;
+  bool ret = dconfig.retain;
   if (tIndex == 0) {
     strlcpy(topic, topicState, sizeof(topic));
     ret = false;
@@ -2153,12 +2162,12 @@ void mqttPublish (int tIndex, int instance, const char* payload, bool useBuffer)
   }
   #ifdef DBL_CLICK
     else if (tIndex == 2) {
-      strlcpy(topic, dconfig.topicDouble, sizeof(topic));
+      strlcpy(topic, topicAction, sizeof(topic));
       ret = false;
     }
   #endif
-  if (mqttStatus && mqttBusy0 == 0) {
-    mqttClient.publish(topic, MQTT_PUB_QOS, ret, payload);
+  if (mqttStatus && !transitBussy && mqttBusy0 == 0) {
+    mqttTransit(mqttClient.publish(topic, MQTT_PUB_QOS, ret, payload));
     ++mqttEventCtr;
     #ifdef DEBUG_MODE
       writeDebug("Publish on topic: ", 4, true);
@@ -2167,7 +2176,8 @@ void mqttPublish (int tIndex, int instance, const char* payload, bool useBuffer)
       writeDebug(tmpMsg0);
       writeDebug(payload);
     #endif
-  } else if (useBuffer) {
+  } 
+  else if (useBuffer) {
     // Save message in Buffer for later processing
     strlcpy(buffTop[buffStat], topic, sizeof(buffTop[buffStat]));
     strlcpy(buffMsg[buffStat], payload, sizeof(buffMsg[buffStat]));
@@ -2195,9 +2205,9 @@ void mqttPublish (int tIndex, int instance, const char* payload, bool useBuffer)
    Publish pending messages in the buffer
 *********************************************************************************************** */
 void mqttPublishBuffer () {
-  if (buffStat == buffPub) { return; }
-  if (!mqttStatus) { return; }
-  mqttClient.publish(buffTop[buffPub], MQTT_PUB_QOS, buffRet[buffPub], buffMsg[buffPub]);
+  if (buffStat == buffPub) return;
+  if (!mqttStatus || transitBussy) return;
+  mqttTransit(mqttClient.publish(buffTop[buffPub], MQTT_PUB_QOS, buffRet[buffPub], buffMsg[buffPub]));
   ++mqttEventCtr;
   #ifdef DEBUG_MODE
     sprintf(tmpMsg0, "Publish buffer %d for topic", buffPub);
@@ -2216,42 +2226,82 @@ void mqttPublishBuffer () {
 /** **********************************************************************************************
    Publish light status
 
-   @param light Light number [0|1|2]. 0 indicates both lights.
+   @param index Light index [-1|0|1]. -1 indicates all instances.
 *********************************************************************************************** */
-void mqttPublishStatus (int light) {
-  /* ------------------------------------------------------------------------------------------ 
-     Publish the status for each MQTT Instance
-    ------------------------------------------------------------------------------------------- */
-  if (light == 0 || light == 1) {
-    sprintf(tmpMsg, "{\"state\":\"%s\",\"brightness\":%d,\"power\":%d,\"indicator\":\"ON\"}", ((T1State) ? "ON" : "OFF"), T1Bright, T1Power, ((Led1Status) ? "ON" : "OFF"));
-    mqttPublish(1, 0, tmpMsg, true);
+void mqttPublishStatus (int index) {
+  for (int i = 0; i < INSTANCE_NUM; i++) {
+    if (index != i && index != -1) continue;
+    sprintf(tmpMsg, "{\"state\":\"%s\",\"brightness\":%d,\"power\":%d,\"indicator\":\"%s\"}", ((inst[i].tState) ? "ON" : "OFF"), inst[i].tBright, inst[i].tPower, ((inst[i].iStatus) ? "ON" : "OFF"));
+    mqttPublish(1, i, tmpMsg, true);
   }
-  #ifdef DOUBLE_DIMMER
-    if(light == 0 || light == 2) {
-      sprintf(tmpMsg, "{\"state\":\"%s\",\"brightness\":%d,\"power\":%d,\"indicator\":\"ON\"}", ((T2State) ? "ON" : "OFF"), T2Bright, T2Power, ((Led2Status) ? "ON" : "OFF"));
-      mqttPublish(1, 1, tmpMsg, true);
-    }
-  #endif
 }
 
 #ifdef MQTT_DISCOVERY
 /** **********************************************************************************************
-   Publish auto discovery message
+   Reset Discovery
 *********************************************************************************************** */
-void mqttDiscovery() {
+void mqttReDiscover () {
+  discovered = false;
+  discInst = 0;
+  #ifdef DBL_CLICK
+    discActn = 0;
+  #endif
+}
+
+/** **********************************************************************************************
+   Publish auto discovery message
+   https://www.home-assistant.io/integrations/device_trigger.mqtt/#configuration-variables
+*********************************************************************************************** */
+void mqttDiscovery () {
   if (discovered) return;
-  char tmpMsgN[451];
-  discovered = true;
-  for (int i = 0; i < INSTANCE_NUM; i++) {
-    sprintf(tmpMsg0, "homeassistant/light/%s/config", mqttTopics[i].uname);
-    sprintf(tmpMsgN, "{\"name\":\"%s\",\"uniq_id\":\"%s\",\"schema\":\"json\",\"brightness\":true,\"bri_scl\":100,\"opt\":false,\"stat_t\":\"%s\",\"cmd_t\":\"%s\",\"ret\":%s,\"dev\":{\"ids\":[\"D%s\"],\"name\":\"%s\",\"mf\":\"JAE\",\"mdl\":\"RDm05\",\"sw\":\"%s\"}}", mqttTopics[i].uname, mqttTopics[i].uid, mqttTopics[i].state, mqttTopics[i].set, ((retain) ? "true" : "false"), deviceId, dconfig.myId, SVERSION);
-    mqttClient.publish(tmpMsg0, MQTT_PUB_QOS, true, tmpMsgN);
-    #ifdef DEBUG_MODE
-      writeDebug("Discovery on topic: ", 4, true);
-      writeDebug(tmpMsg0, 0, true);
-      writeDebug(" ", 0, true);
-      writeDebug(tmpMsgN);
-    #endif
+  // Check network bussy status
+  if (!mqttStatus || transitBussy || mqttBusy0 > 0) return;
+  // Finished!
+  if (discInst > INSTANCE_NUM) {
+    discovered = true;
+    return;
+  }
+  // Discover device
+  char tmpMsgN[471];
+  char ltr[2] = "@";
+  int lgt = discInst + 1;
+  bool br = dconfig.iDimm[discInst];
+  ltr[0] += INSTANCE_NUM;
+  #ifdef DBL_CLICK
+    char typ[20];
+    char py[3];
+    if (discActn == 0) {
+  #endif
+  sprintf(tmpMsg0, "homeassistant/light/%s/config", mqttTopics[discInst].uname);
+  sprintf(tmpMsgN, "{\"name\":\"%s\",\"uniq_id\":\"%s\",\"schema\":\"json\",\"brightness\":%s,\"bri_scl\":100,\"opt\":false,\"stat_t\":\"%s\",\"cmd_t\":\"%s\",\"ret\":false,\"dev\":{\"ids\":[\"D%s\"],\"name\":\"%s\",\"mf\":\"JAE\",\"mdl\":\"RDm%s%s\",\"sw\":\"%s\"}}", mqttTopics[discInst].uname, mqttTopics[discInst].uid, ((br) ? "true" : "false"), mqttTopics[discInst].state, mqttTopics[discInst].set, deviceId, dconfig.myId, ltr, HVERSION, SVERSION);
+  #ifdef DBL_CLICK
+    } else {
+      if(discActn == 1) {
+        strcpy(typ, "button_double_press");
+        strcpy(py, "dc");
+      } else {
+        strcpy(typ, "button_triple_press");
+        strcpy(py, "tc");
+      }
+      sprintf(tmpMsg0, "homeassistant/device_automation/%s/%s%d/config", deviceId, py, lgt);
+      sprintf(tmpMsgN, "{\"atype\":\"trigger\",\"type\":\"%s\",\"stype\":\"button_%d\",\"payload\":\"%s%d\",\"topic\":\"%s\",\"dev\":{\"ids\":[\"D%s\"],\"name\":\"%s\",\"mdl\":\"RDm%s%s\",\"sw\":\"%s\",\"mf\":\"JAE\"}}", typ, lgt, py, lgt, topicAction, deviceId, dconfig.myId, ltr, HVERSION, SVERSION);
+    }
+    ++discActn;
+    if (discActn > 2) {
+      discActn = 0;
+      ++discInst;
+    }
+  #else
+    ++discInst;
+  #endif
+  mqttTransit(mqttClient.publish(tmpMsg0, MQTT_PUB_QOS, true, tmpMsgN));
+  #ifdef DEBUG_MODE
+    writeDebug("Discover on topic: ", 4, true);
+    writeDebug(tmpMsg0, 0, true);
+    writeDebug(tmpMsgN);
+  #endif
+  if (discInst >= INSTANCE_NUM) {
+    discovered = true;
   }
 }
 #endif
@@ -2284,25 +2334,27 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
     #endif
     return;
   }
-  // JSON V5.0
-  //DynamicJsonBuffer jsonBuffer;
-  //JsonObject& json = jsonBuffer.parseObject(payload);
-  //if (!json.success()) {
-  //  #ifdef DEBUG_MODE
-  //    writeDebug("Invalid JSON Structure", 4);
-  //  #endif
-  //  return;
-  //}
-  // JSON V6.0
-  DynamicJsonDocument json(1024);
-  auto error = deserializeJson(json, payload);
-  if (error) {
-    #ifdef DEBUG_MODE
-      writeDebug("Invalid JSON Structure", 4);
-    #endif
-    return;
-  }
-  //
+  #ifdef JSON6
+    // JSON V6.0
+    DynamicJsonDocument json(1024);
+    auto error = deserializeJson(json, payload);
+    if (error) {
+      #ifdef DEBUG_MODE
+        writeDebug("Invalid JSON Structure", 4);
+      #endif
+      return;
+    }
+  #else
+    // JSON V5.0
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.parseObject(payload);
+    if (!json.success()) {
+      #ifdef DEBUG_MODE
+        writeDebug("Invalid JSON Structure", 4);
+      #endif
+      return;
+    }
+  #endif
   #ifdef DEBUG_MODE
     writeDebug("JSON payload parsed", 4);
   #endif
@@ -2314,425 +2366,387 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
       #endif
       return;
     }
-    // An ACTION is requested...
-    else if (json.containsKey("action") && json["action"].is<char*>()) {
-      // Get the device STATUS
-      if (strcmp(json["action"], "getStatus") == 0) {
-        if (json.containsKey("instance") && (json["instance"].is<signed int>() || json["instance"].is<unsigned int>())) {
-          if (json["instance"] > 0 && json["instance"] <= INSTANCE_NUM) {
-            mqttPublishStatus(json["instance"]);
-          }
-        } else {
-          mqttPublishStatus(0);
+    // No ACTION requested...
+    if (!json.containsKey("action") || !json["action"].is<char*>()) {
+      #ifdef DEBUG_MODE
+        writeDebug("Invalid configuration message. No action defined.", 4);
+      #endif
+      return;
+    }
+    // Get the state of a single instance or all
+    if (strcmp(json["action"], "getState") == 0) {
+      if (json.containsKey("instance") && (json["instance"].is<signed int>() || json["instance"].is<unsigned int>())) {
+        if (json["instance"] > 0 && json["instance"] <= INSTANCE_NUM) {
+          mqttPublishStatus(((int)json["instance"] - 1));
         }
-      } 
-      // Get Device information
-      else if (strcmp(json["action"], "getInfo") == 0) {
-        #ifdef SAVE_ON_RESET
-          sprintf(tmpMsg, "%s / BT: %d / AL: %d / RC: %d / RT: %d / RST: %d | RD: %d / AL: %d / RC: %d / RT: %d | RD: %d / AL: %d / RC: %d / RT: %d | RD: %d / AL: %d / RC: %d / RT: %d ", TITLE, debugBoot, aliveCounter, wifiRstCtr, wifiRstTtl, debugRst, resetDelay1, aliveCounter1, wifiRstCtr1, wifiRstTtl1, resetDelay2, aliveCounter2, wifiRstCtr2, wifiRstTtl2, resetDelay3, aliveCounter3, wifiRstCtr3, wifiRstTtl3);
-          mqttPublish(0, 0, tmpMsg);
-        #else
-          sprintf(tmpMsg0, "%s / ALIVE: %d / RstCtr: %d / RstTtl: %d", TITLE, aliveCounter, wifiRstCtr, wifiRstTtl);
-          mqttPublish(0, 0, tmpMsg0);
+      } else {
+        mqttPublishStatus(-1);
+      }
+      return;
+    } 
+    // Change state of LED indicators
+    if (strcmp(json["action"], "getInfo") == 0) {
+      const char* ipadd1 = WiFi.localIP().toString().c_str();
+      #ifdef SAVE_ON_RESET
+        sprintf(tmpMsg, "{\"dev\":\"%s\",\"ip\":\"%s\",\"bt\":%d,\"ac\":%ld,\"rc\":%d,\"rt\":%d,\"rst\":%d,\"rd\":%d,\"al\":%ld,\"rc\":%d,\"rt\":%d,\"rd1\":%d,\"al1\":%ld,\"rc1\":%d,\"rt1\":%d,\"rd2\":%d,\"al2\":%ld,\"rc2\":%d,\"rt2\":%d}", TITLE, ipadd1, debugBoot, aliveCounter, wifiRstCtr, wifiRstTtl, debugRst, resetDelay1, aliveCounter1, wifiRstCtr1, wifiRstTtl1, resetDelay2, aliveCounter2, wifiRstCtr2, wifiRstTtl2, resetDelay3, aliveCounter3, wifiRstCtr3, wifiRstTtl3);
+        mqttPublish(0, 0, tmpMsg);
+      #else
+        sprintf(tmpMsg0, "{\"dev\":\"%s\",\"ip\":\"%s\",\"al\":%ld,\"rc\":%d,\"rt\":%d}", TITLE, ipadd1, aliveCounter, wifiRstCtr, wifiRstTtl);
+        mqttPublish(0, 0, tmpMsg0);
+      #endif
+      return;
+    }
+    // Change state of LED indicators
+    if (strcmp(json["action"], "indicators") == 0) {
+      // Set duty cycle 
+      if (json.containsKey("bright") && (json["bright"].is<signed int>() || json["bright"].is<unsigned int>())) {
+        if (json["bright"] > 100) {
+           json["bright"] = 100;
+        } else if (json["bright"] < -1) {
+           json["bright"] = -1;
+        }
+        LedBright = calcLed((int)json["bright"]);
+      }
+      if (json.containsKey("dimm") && (json["dimm"].is<signed int>() || json["dimm"].is<unsigned int>())) {
+        if (json["dimm"] > 100) {
+           json["dimm"] = 100;
+        } else if (json["dimm"] < -1) {
+           json["dimm"] = -1;
+        }
+        LedDimm = calcLed((int)json["dimm"]);
+      }
+      return;
+    }
+    if (strcmp(json["action"], "getConfig") == 0) {
+      #ifndef MQTT_CONFIG
+        #ifdef DEBUG_MODE
+          writeDebug("Remote configuration disabled.'.", 1);
         #endif
-      }
-      // Change state of LED indicators
-      else if (strcmp(json["action"], "indicators") == 0) {
-        // Set duty cycle 
-        if (json.containsKey("bright") && (json["bright"].is<signed int>() || json["bright"].is<unsigned int>())) {
-          if (json["bright"] > 100) {
-             json["bright"] = 100;
-          } else if (json["bright"] < 0) {
-             json["bright"] = 0;
-          }
-          if (json["bright"] == 0) {
-            LedBright = dconfig.LedBright;
-          } else {
-            pulseNum = json["bright"];
-            LedBright = pulseNum * 10;
-          }
-        }
-        if (json.containsKey("dimm") && (json["dimm"].is<signed int>() || json["dimm"].is<unsigned int>())) {
-          if (json["dimm"] > 100) {
-             json["dimm"] = 100;
-          } else if (json["dimm"] < 0) {
-             json["dimm"] = 0;
-          }
-          if (json["dimm"] == 0) {
-            LedDimm = dconfig.LedDimm;
-          } else {
-            pulseNum = json["dimm"];
-            LedDimm = pulseNum * 10;
-          }
-        }
-      }
-      #ifdef MQTT_CONFIG
+      #else
         // Get the device configuration
-        else if (strcmp(json["action"], "getConfig") == 0) {
-          File configFile = SPIFFS.open("/config.json", "r");
-          if (configFile) {
-            size_t size = configFile.size();
-            // Allocate a buffer to store contents of the file.
-            std::unique_ptr<char[]> buf(new char[size]);
-            configFile.readBytes(buf.get(), size);
-            // Publish config string
-            mqttPublish(0, 0, buf.get());
-            configFile.close();
-          }
-        } 
+        File configFile = LittleFS.open("/config.json", "r");
+        if (configFile) {
+          size_t size = configFile.size();
+          // Allocate a buffer to store contents of the file.
+          std::unique_ptr<char[]> buf(new char[size]);
+          configFile.readBytes(buf.get(), size);
+          // Publish config string
+          mqttPublish(0, 0, buf.get());
+          configFile.close();
+        }
+      #endif
+      return;
+    }
+    if (strcmp(json["action"], "config") == 0) {
+      #ifndef MQTT_CONFIG
+        #ifdef DEBUG_MODE
+          writeDebug("Remote configuration disabled.'.", 1);
+        #endif
+      #else
         // Configure
-        else if (strcmp(json["action"], "config") == 0) {
-          if (json.containsKey("secret") && json["secret"].is<char*>()) {
-            if (strcmp(json["secret"], "secret") == 0) {
-              bool configChanged = false;
-              if (json.containsKey("mqttport") && (json["mqttport"].is<signed int>() || json["mqttport"].is<unsigned int>())) {
-                dconfig.mqttport = json["mqttport"];
-                configChanged = true;
-              }
-              if (json.containsKey("mqttbroker") && json["mqttbroker"].is<char*>()) {
-                strlcpy(dconfig.mqttbroker, json["mqttbroker"], sizeof(dconfig.mqttbroker));
-                configChanged = true;
-              }
-              if (json.containsKey("mqttuser") && json["mqttuser"].is<char*>()) {
-                strlcpy(dconfig.mqttuser, json["mqttuser"], sizeof(dconfig.mqttuser));
-                configChanged = true;
-              }
-              if (json.containsKey("mqttpass") && json["mqttpass"].is<char*>()) {
-                strlcpy(dconfig.mqttpass, json["mqttpass"], sizeof(dconfig.mqttpass));
-                configChanged = true;
-              }
-              if (json.containsKey("namespc") && json["namespc"].is<char*>()) {
-                strlcpy(dconfig.namespc, json["namespc"], sizeof(dconfig.namespc));
-                configChanged = true;
-                discovered = false;
-              }
-              if (json.containsKey("mqttkey") && json["mqttkey"].is<char*>()) {
-                strlcpy(dconfig.mqttkey, json["mqttkey"], sizeof(dconfig.mqttkey));
-                configChanged = true;
-              }
-              if (json.containsKey("retain") && json["retain"].is<bool>()) {
-                dconfig.retain = json["retain"];
-                retain = dconfig.retain;
-                configChanged = true;
-                discovered = false;
-              }
-              if (json.containsKey("keepAlive") && (json["keepAlive"].is<signed int>() || json["keepAlive"].is<unsigned int>())) {
-                dconfig.keepAlive = json["keepAlive"];
-                configChanged = true;
-              }
-              if (json.containsKey("myId") && json["myId"].is<char*>()) {
-                strlcpy(dconfig.myId, json["myId"], sizeof(dconfig.myId));
-                configChanged = true;
-                discovered = false;
-              }
-              /* --------------------------------------------------------------------------------------------  */
-              if (json.containsKey("name01") && json["name01"].is<char*>()) {
-                strlcpy(dconfig.name01, json["name01"], sizeof(dconfig.name01));
-                configChanged = true;
-                discovered = false;
-              }
-              #ifdef DOUBLE_DIMMER
-              if (json.containsKey("name02") && json["name02"].is<char*>()) {
-                strlcpy(dconfig.name02, json["name02"], sizeof(dconfig.name02));
-                configChanged = true;
-                discovered = false;
-              }
-              #endif
-              if (json.containsKey("LgtMode") && json["LgtMode"].is<bool>()) {
-                dconfig.LgtMode = json["LgtMode"];
-                LgtMode = dconfig.LgtMode;
-                setLightMode();
-                configChanged = true;
-              }
-              if (json.containsKey("Lgt1Dimm") && json["Lgt1Dimm"].is<bool>()) {
-                dconfig.Lgt1Dimm = json["Lgt1Dimm"];
-                if (LgtMode) {
-                  Lgt1Dimm = dconfig.Lgt1Dimm;
-                }
-                configChanged = true;
-              }
-              if (json.containsKey("Lgt1Trns") && json["Lgt1Trns"].is<bool>()) {
-                dconfig.Lgt1Trns = json["Lgt1Trns"];
-                if (LgtMode) {
-                  Lgt1Trns = dconfig.Lgt1Trns;
-                }
-                configChanged = true;
-              }
-              #ifdef DOUBLE_DIMMER
-              if (json.containsKey("Lgt2Dimm") && json["Lgt2Dimm"].is<bool>()) {
-                dconfig.Lgt2Dimm = json["Lgt2Dimm"];
-                if (LgtMode) {
-                  Lgt2Dimm = dconfig.Lgt2Dimm;
-                }
-                configChanged = true;
-              }
-              if (json.containsKey("Lgt2Trns") && json["Lgt2Trns"].is<bool>()) {
-                dconfig.Lgt2Trns = json["Lgt2Trns"];
-                if (LgtMode) {
-                  Lgt2Trns = dconfig.Lgt2Trns;
-                }
-                configChanged = true;
-              }
-              #endif
-              if (json.containsKey("LedBright") && (json["LedBright"].is<signed int>() || json["LedBright"].is<unsigned int>())) {
-                if (json["LedBright"] > CONFIG_LED_BRIGHT) {
-                   json["LedBright"] = CONFIG_LED_BRIGHT;
-                } else if (json["LedBright"] < 0) {
-                   json["LedBright"] = 0;
-                }
-                dconfig.LedBright = json["LedBright"];
-                LedBright = dconfig.LedBright;
-                configChanged = true;
-              }
-              if (json.containsKey("LedDimm") && (json["LedDimm"].is<signed int>() || json["LedDimm"].is<unsigned int>())) {
-                if (json["LedDimm"] > CONFIG_LED_BRIGHT) {
-                   json["LedDimm"] = CONFIG_LED_BRIGHT;
-                } else if (json["LedDimm"] < 0) {
-                   json["LedDimm"] = 0;
-                }
-                dconfig.LedDimm = json["LedDimm"];
-                LedDimm = dconfig.LedDimm;
-                configChanged = true;
-              }
-              if (json.containsKey("LedDefault") && json["LedDefault"].is<bool>()) {
-                dconfig.LedDefault = json["LedDefault"];
-                configChanged = true;
-              }
-              if (json.containsKey("dimmTime") && (json["dimmTime"].is<signed int>() || json["dimmTime"].is<unsigned int>())) {
-                if (json["dimmTime"] > 100) {
-                   json["dimmTime"] = 100;
-                } else if (json["dimmTime"] < 0) {
-                   json["dimmTime"] = 0;
-                }
-                dconfig.dimmTime = json["dimmTime"];
-                defineEdge();
-                defineButtons();
-                configChanged = true;
-              }
-              if (json.containsKey("edgeTime") && (json["edgeTime"].is<signed int>() || json["edgeTime"].is<unsigned int>())) {
-                if (json["edgeTime"] > 30) {
-                   json["edgeTime"] = 30;
-                } else if (json["edgeTime"] < 0) {
-                   json["edgeTime"] = 0;
-                }
-                dconfig.edgeTime = json["edgeTime"];
-                defineEdge();
-                configChanged = true;
-              }
-              if (json.containsKey("transitionOn") && (json["transitionOn"].is<signed int>() || json["transitionOn"].is<unsigned int>())) {
-                if (json["transitionOn"] > 10) {
-                   json["transitionOn"] = 10;
-                } else if (json["transitionOn"] < 0) {
-                   json["transitionOn"] = 0;
-                }
-                dconfig.transitionOn = json["transitionOn"];
-                transitionOn = dconfig.transitionOn;
-                configChanged = true;
-              }
-              if (json.containsKey("transitionOff") && (json["transitionOff"].is<signed int>() || json["transitionOff"].is<unsigned int>())) {
-                if (json["transitionOff"] > 100) {
-                   json["transitionOff"] = 100;
-                } else if (json["transitionOff"] < 0) {
-                   json["transitionOff"] = 0;
-                }
-                dconfig.transitionOff = json["transitionOff"];
-                transitionOff = dconfig.transitionOff;
-                configChanged = true;
-              }
-              if (json.containsKey("minPow1") && (json["minPow1"].is<signed int>() || json["minPow1"].is<unsigned int>())) {
-                if (json["minPow1"] > MAX_MIN_POW) {
-                   json["minPow1"] = MAX_MIN_POW;
-                } else if (json["minPow1"] < MIN_POW) {
-                   json["minPow1"] = MIN_POW;
-                }
-                dconfig.minPow1 = json["minPow1"];
-                minPow1 = dconfig.minPow1;
-                configChanged = true;
-              }
-              #ifdef DOUBLE_DIMMER
-              if (json.containsKey("minPow2") && (json["minPow2"].is<signed int>() || json["minPow2"].is<unsigned int>())) {
-                if (json["minPow2"] > MAX_MIN_POW) {
-                   json["minPow2"] = MAX_MIN_POW;
-                } else if (json["minPow2"] < MIN_POW) {
-                   json["minPow2"] = MIN_POW;
-                }
-                dconfig.minPow2 = json["minPow2"];
-                minPow2 = dconfig.minPow2;
-                configChanged = true;
-              }
-              #endif
-              // Save configuration changes
-              if (configChanged) {
-                saveConfig();
-              }
-              #ifdef DEBUG_MODE
-                else {
-                    writeDebug("No changes in the configuration.", 1);
-                }
-              #endif
-            }
-            #ifdef DEBUG_MODE
-              else {
-                writeDebug("Invalid 'secret'.", 4);
-              }
+        if (!json.containsKey("secret") || !json["secret"].is<char*>()) {
+          #ifdef DEBUG_MODE
+            writeDebug("Missing key 'secret'.", 4);
+          #endif
+          return;
+        }
+        if (strcmp(json["secret"], "secret") != 0) {
+          #ifdef DEBUG_MODE
+            writeDebug("Invalid 'secret'.", 4);
+          #endif
+          return;
+        }
+        bool configChanged = false;
+        if (json.containsKey("mqttport") && (json["mqttport"].is<signed int>() || json["mqttport"].is<unsigned int>())) {
+          dconfig.mqttport = json["mqttport"];
+          configChanged = true;
+        }
+        if (json.containsKey("mqttbroker") && json["mqttbroker"].is<char*>()) {
+          strlcpy(dconfig.mqttbroker, json["mqttbroker"], sizeof(dconfig.mqttbroker));
+          configChanged = true;
+        }
+        if (json.containsKey("mqttuser") && json["mqttuser"].is<char*>()) {
+          strlcpy(dconfig.mqttuser, json["mqttuser"], sizeof(dconfig.mqttuser));
+          configChanged = true;
+        }
+        if (json.containsKey("mqttpass") && json["mqttpass"].is<char*>()) {
+          strlcpy(dconfig.mqttpass, json["mqttpass"], sizeof(dconfig.mqttpass));
+          configChanged = true;
+        }
+        if (json.containsKey("namespc") && json["namespc"].is<char*>()) {
+          strlcpy(dconfig.namespc, json["namespc"], sizeof(dconfig.namespc));
+          configChanged = true;
+          #ifdef MQTT_DISCOVERY
+            mqttReDiscover();
+          #endif
+        }
+        if (json.containsKey("mqttkey") && json["mqttkey"].is<char*>()) {
+          strlcpy(dconfig.mqttkey, json["mqttkey"], sizeof(dconfig.mqttkey));
+          configChanged = true;
+        }
+        if (json.containsKey("retain") && json["retain"].is<bool>()) {
+          dconfig.retain = json["retain"];
+          configChanged = true;
+          #ifdef MQTT_DISCOVERY
+            mqttReDiscover();
+          #endif
+        }
+        if (json.containsKey("keepAlive") && (json["keepAlive"].is<signed int>() || json["keepAlive"].is<unsigned int>())) {
+          dconfig.keepAlive = json["keepAlive"];
+          configChanged = true;
+        }
+        if (json.containsKey("myId") && json["myId"].is<char*>()) {
+          strlcpy(dconfig.myId, json["myId"], sizeof(dconfig.myId));
+          configChanged = true;
+          #ifdef MQTT_DISCOVERY
+            mqttReDiscover();
+          #endif
+        }
+        /* --------------------------------------------------------------------------------------------  */
+        if (json.containsKey("LgtMode") && json["LgtMode"].is<bool>()) {
+          dconfig.LgtMode = json["LgtMode"];
+          setLightMode();
+          configChanged = true;
+        }
+        if (json.containsKey("LedBright") && (json["LedBright"].is<signed int>() || json["LedBright"].is<unsigned int>())) {
+          if (json["LedBright"] > 100) {
+             json["LedBright"] = 100;
+          } else if (json["LedBright"] < 0) {
+             json["LedBright"] = 0;
+          }
+          dconfig.LedBright = json["LedBright"];
+          LedBright = calcLed(dconfig.LedBright);
+          configChanged = true;
+        }
+        if (json.containsKey("LedDimm") && (json["LedDimm"].is<signed int>() || json["LedDimm"].is<unsigned int>())) {
+          if (json["LedDimm"] > 100) {
+             json["LedDimm"] = 100;
+          } else if (json["LedDimm"] < 0) {
+             json["LedDimm"] = 0;
+          }
+          dconfig.LedDimm = json["LedDimm"];
+          LedDimm = calcLed(dconfig.LedDimm);
+          configChanged = true;
+        }
+        if (json.containsKey("LedDefault") && json["LedDefault"].is<bool>()) {
+          dconfig.LedDefault = json["LedDefault"];
+          configChanged = true;
+        }
+        if (json.containsKey("dimmTime") && (json["dimmTime"].is<signed int>() || json["dimmTime"].is<unsigned int>())) {
+          if (json["dimmTime"] > MAX_DIMM_TIME) {
+             json["dimmTime"] = MAX_DIMM_TIME;
+          } else if (json["dimmTime"] < MIN_DIMM_TIME) {
+             json["dimmTime"] = MIN_DIMM_TIME;
+          }
+          dconfig.dimmTime = json["dimmTime"];
+          defineEdge();
+          // Change repetition rate for buttons
+          for (int i = 0; i < INSTANCE_NUM; i++) {
+            myButtons[i].repInterval = calcRep();
+          }
+          configChanged = true;
+        }
+        if (json.containsKey("edgeTime") && (json["edgeTime"].is<signed int>() || json["edgeTime"].is<unsigned int>())) {
+          if (json["edgeTime"] > MAX_EDGE_TIME) {
+             json["edgeTime"] = MAX_EDGE_TIME;
+          } else if (json["edgeTime"] < MIN_EDGE_TIME) {
+             json["edgeTime"] = MIN_EDGE_TIME;
+          }
+          dconfig.edgeTime = json["edgeTime"];
+          defineEdge();
+          configChanged = true;
+        }
+        if (json.containsKey("transitionOn") && (json["transitionOn"].is<signed int>() || json["transitionOn"].is<unsigned int>())) {
+          if (json["transitionOn"] > 10) {
+             json["transitionOn"] = 10;
+          } else if (json["transitionOn"] < 0) {
+             json["transitionOn"] = 0;
+          }
+          dconfig.transitionOn = json["transitionOn"];
+          configChanged = true;
+        }
+        if (json.containsKey("transitionOff") && (json["transitionOff"].is<signed int>() || json["transitionOff"].is<unsigned int>())) {
+          if (json["transitionOff"] > 10) {
+             json["transitionOff"] = 10;
+          } else if (json["transitionOff"] < 0) {
+             json["transitionOff"] = 0;
+          }
+          dconfig.transitionOff = json["transitionOff"];
+          configChanged = true;
+        }
+        /* --------------------------------------------------------------------------------------------  */
+        int lgt;
+        for (int i = 0; i < INSTANCE_NUM; i++) {
+          lgt = i + 1;
+          sprintf(tmpMsg0, "name%d", lgt);
+          if (json.containsKey(tmpMsg0) && json[tmpMsg0].is<char*>()) {
+            strlcpy(dconfig.iName[i], json[tmpMsg0], sizeof(dconfig.iName[i]));
+            configChanged = true;
+            #ifdef MQTT_DISCOVERY
+              mqttReDiscover();
             #endif
           }
-          #ifdef DEBUG_MODE
-            else {
-              writeDebug("Missing key 'secret'.", 4);
+          sprintf(tmpMsg0, "LgtDimm%d", lgt);
+          if (json.containsKey(tmpMsg0) && json[tmpMsg0].is<bool>()) {
+            dconfig.iDimm[i] = (dconfig.LgtMode) ? json[tmpMsg0] : false;
+            configChanged = true;
+          }
+          sprintf(tmpMsg0, "LgtTrns%d", lgt);
+          if (json.containsKey(tmpMsg0) && json[tmpMsg0].is<bool>()) {
+            dconfig.iTrns[i] = (dconfig.LgtMode) ? json[tmpMsg0] : false;
+            configChanged = true;
+          }
+          sprintf(tmpMsg0, "minPow%d", lgt);
+          if (json.containsKey(tmpMsg0) && (json[tmpMsg0].is<signed int>() || json[tmpMsg0].is<unsigned int>())) {
+            if (json[tmpMsg0] > MAX_MIN_POW) {
+               json[tmpMsg0] = MAX_MIN_POW;
+            } else if (json[tmpMsg0] < MIN_POW) {
+               json[tmpMsg0] = MIN_POW;
             }
-          #endif
+            dconfig.iMinPow[i] = json[tmpMsg0];
+            configChanged = true;
+          }
+          sprintf(tmpMsg0, "brightness%d", lgt);
+          if (json.containsKey(tmpMsg0) && (json[tmpMsg0].is<signed int>() || json[tmpMsg0].is<unsigned int>())) {
+            if (json[tmpMsg0] > 100) {
+               json[tmpMsg0] = 100;
+            } else if (json[tmpMsg0] < 1) {
+               json[tmpMsg0] = 1;
+            }
+            dconfig.iBrightness[i] = json[tmpMsg0];
+            configChanged = true;
+          }
         }
-      #else
+        /* --------------------------------------------------------------------------------------------  */
+        // Save configuration changes
+        if (configChanged) {
+          saveConfig();
+        }
         #ifdef DEBUG_MODE
-          else if (strcmp(json["action"], "getConfig") == 0) {
-            writeDebug("Remote configuration disabled.'.", 1);
-          } 
-          // Configure
-          else if (strcmp(json["action"], "config") == 0) {
-            writeDebug("Remote configuration disabled.'.", 1);
+          else {
+            writeDebug("No changes in the configuration.", 1);
           }
         #endif
       #endif
-      #ifdef MQTT_RESET
-        // Reset the Device
-        else if (strcmp(json["action"], "reset") == 0) {
-          mqttPublish(0, 0, "reset");
-          #ifdef DEBUG_MODE
-            writeDebug("Reset requested", 1);
-          #endif
-          ESP.restart();
-        }
-      #endif
-      #if defined(SAVE_ON_RESET) && defined(SAVE_ON_RESET_CLEAR)
-        // Clear status from EEPROM
-        else if (strcmp(json["action"], "clearmem") == 0) {
-          clearStatus();
-        }
-      #endif
-      #ifdef DEBUG_MODE
-        // Invalid action 
-        else {
-          writeDebug("Invalid configuration action.", 4);
-        }
-      #endif
+      return;
     }
-    #ifdef DEBUG_MODE
-      else {
-        writeDebug("Invalid configuration message. No action defined.", 4);
+    #ifdef MQTT_RESET
+      // Reset the Device
+      if (strcmp(json["action"], "reset") == 0) {
+        mqttPublish(0, 0, MQTT_MSG_RESET);
+        #ifdef DEBUG_MODE
+          writeDebug("Reset requested", 1);
+        #endif
+        ESP.restart();
+        return;
       }
+    #endif
+    #if defined(SAVE_ON_RESET) && defined(SAVE_ON_RESET_CLEAR)
+      // Clear status from EEPROM
+      if (strcmp(json["action"], "clearmem") == 0) {
+        clearStatus();
+        return;
+      }
+    #endif
+    #ifdef DEBUG_MODE
+      writeDebug("Invalid configuration action.", 4);
     #endif
     return;
   }
-  bool fGo = false;
   bool fLive = false;
   bool fPub = false;
   bool fTop = false;
+  bool fDim = false;
+  bool fTrn = false;
   int stt = -1;
   int brght = -1;
   int trns = -1;
   // Loop instance topics
   for (int i = 0; i < INSTANCE_NUM; i++) {
-    fGo = false;
     // Validate SET or STATE (GoLive) topics
     if (strcmp(topic, mqttTopics[i].set) == 0) {
       if (properties.retain) {
         #ifdef DEBUG_MODE
           writeDebug("Instances do not accept retained messages on SET topics.", 4);
         #endif
-        fTop = true;
-      } else {
-        fGo = true;
-        fLive = false;
+        return;
       }
+      fLive = false;
     } else if (goLive == 2 && strcmp(topic, mqttTopics[i].state) == 0) {
-      fGo = true;
       fLive = true;
       #ifdef DEBUG_MODE
         writeDebug("Retained Message", 4);
       #endif
+    } else {
+      continue;
     }
-    if (fGo) {
-      fTop = true;
-      if (json.containsKey("action") && json["action"].is<char*>()) {
-        if (properties.retain) {
-          #ifdef DEBUG_MODE
-            writeDebug("Topic actions do not accept retained messages.", 4);
-          #endif
-        } else if (strcmp(json["action"], "getStatus") == 0) {
-          mqttPublishStatus(i + 1);
-        } else if (strcmp(json["action"], "getConfig") == 0) {
-          mqttPublish(1, i, deviceId);
-        } 
+    fTop = true;
+    if (json.containsKey("action") && json["action"].is<char*>()) {
+      if (properties.retain) {
         #ifdef DEBUG_MODE
-          else {
-            writeDebug("Invalid action", 4);
-          }
+          writeDebug("Action Topics do not accept retained messages.", 4);
         #endif
-      } else {
-        fPub = false;
-        fGo = false;
-        stt = -1;
-        brght = -1;
-        trns = -1;
-        /* --------------------------------------------------------------------------------------------  */
-        if (json.containsKey("brightness") && (json["brightness"].is<signed int>() || json["brightness"].is<unsigned int>())) {
-          if (json["brightness"] > 100) {
-            json["brightness"] = 100;
-          } else if (json["brightness"] <= 0) {
-            json["brightness"] = 0;
-          }
-          brght = json["brightness"];
-          fPub = true;
-        }
-        if (json.containsKey("state") && json["state"].is<char*>()) {
-          if (strcmp(json["state"], "ON") == 0) stt = 1;
-          else if (strcmp(json["state"], "OFF") == 0) stt = 0;
-          fPub = true;
-        }
-        if (json.containsKey("transition") && (json["transition"].is<signed int>() || json["transition"].is<unsigned int>())) {
-          if (json["transition"] > 10) {
-            json["transition"] = 10;
-          } else if (json["transition"] <= 0) {
-            json["transition"] = 0;
-          }
-          trns = json["transition"];
-        }
-        if (json.containsKey("indicator") && json["indicator"].is<char*>()) {
-          if (strcmp(json["indicator"], "OFF") == 0) {
-            if (i == 0) {
-              Led1Status = false;
-            } 
-            #ifdef DOUBLE_DIMMER
-              else {
-                Led2Status = false;
-              }
-            #endif
-          } else {
-            if (i == 0) {
-              Led1Status = true;
-            } 
-            #ifdef DOUBLE_DIMMER
-              else {
-                Led2Status = true;
-              }
-            #endif
-          }
-          fPub = true;
-        }
-        if (fPub) {
-          if (fLive) {
-            setLightState(i + 1, stt, brght, CONFIG_TRANSITION_WAKE, false, false);
-            ++retainCnt;
-            if (retainCnt >= INSTANCE_NUM) {
-              goLiveOff();
-            }
-          } else {
-            setLightState(i + 1, stt, brght, trns, true, false);
-          }
-        }
+        return;
       }
+      if (strcmp(json["action"], "getState") == 0) {
+        mqttPublishStatus(i);
+        return;
+      }
+      if (strcmp(json["action"], "getConfig") == 0) {
+        fDim = dconfig.iDimm[i];
+        fTrn = dconfig.iTrns[i];
+        if (snprintf(tmpMsg, sizeof(tmpMsg), "{\"name\":\"%s\",\"uniq_id\":\"%s\",\"stat_t\":\"%s\",\"cmd_t\":\"%s\",\"dimmTime\":%d,\"edgeTime\":%d,\"dimmer\":%s,\"transition\":%s,\"tr_on\":%d,\"tr_off\":%d}", mqttTopics[i].uname, mqttTopics[i].uid, mqttTopics[i].state, mqttTopics[i].set, dconfig.dimmTime, dconfig.edgeTime, ((fDim) ? "true" : "false"), ((fTrn) ? "true" : "false"), dconfig.transitionOn, dconfig.transitionOff) >= 0) {
+          mqttPublish(1, i, tmpMsg);
+        }
+        return;
+      }
+      #ifdef DEBUG_MODE
+        writeDebug("Invalid action", 4);
+      #endif
+      return;
     }
+    /* --------------------------------------------------------------------------------------------  */
+    fPub = false;
+    stt = -1;
+    brght = -1;
+    trns = -1;
+    if (json.containsKey("brightness") && (json["brightness"].is<signed int>() || json["brightness"].is<unsigned int>())) {
+      if (json["brightness"] > 100) {
+        json["brightness"] = 100;
+      } else if (json["brightness"] <= 0) {
+        json["brightness"] = 0;
+      }
+      brght = json["brightness"];
+      fPub = true;
+    }
+    if (json.containsKey("state") && json["state"].is<char*>()) {
+      if (strcmp(json["state"], "ON") == 0) stt = 1;
+      else if (strcmp(json["state"], "OFF") == 0) stt = 0;
+      else if (strcmp(json["state"], "TOGGLE") == 0) stt = 2;
+      fPub = true;
+    }
+    if (json.containsKey("transition") && (json["transition"].is<signed int>() || json["transition"].is<unsigned int>() || json["transition"].is<float>())) {
+      if (json["transition"] > 10) {
+        json["transition"] = 10;
+      } else if (json["transition"] <= 0) {
+        json["transition"] = 0;
+      }
+      trns = (int)json["transition"];
+    }
+    if (json.containsKey("indicator") && json["indicator"].is<char*>()) {
+      inst[i].iStatus = (strcmp(json["indicator"], "OFF") == 0) ? false : true; 
+    }
+    if (!fPub) return;
+    if (fLive) {
+      setLightState(i, stt, brght, CONFIG_TRANSITION_WAKE, false, false);
+      ++retainCnt;
+      if (retainCnt >= INSTANCE_NUM) {
+        goLiveOff();
+      }
+    } else {
+      setLightState(i, stt, brght, trns, true, false);
+    }
+    break;
   }
   #ifdef DEBUG_MODE
     if (!fTop) {
@@ -2756,197 +2770,105 @@ void saveConfigCallback () {
    Set the light mode based on configuration
 *********************************************************************************************** */
 void setLightMode () {
-  if (LgtMode) {
-    Lgt1Dimm = dconfig.Lgt1Dimm;
-    Lgt1Trns = dconfig.Lgt1Trns;
-    #ifdef DOUBLE_DIMMER
-      Lgt2Dimm = dconfig.Lgt2Dimm;
-      Lgt2Trns = dconfig.Lgt2Trns;
-    #endif
-  } else {
-    Lgt1Dimm = false;
-    Lgt1Trns = false;
-    #ifdef DOUBLE_DIMMER
-      Lgt2Dimm = false;
-      Lgt2Trns = false;
-    #endif
+  for (int i = 0; i < INSTANCE_NUM; i++) {
+    dconfig.iDimm[i] = dconfig.LgtMode;
+    dconfig.iTrns[i] = dconfig.LgtMode;
   }
 }
 
 /** **********************************************************************************************
    Set light state
    
-   @param light Light number [1|2]
+   @param i Light instance [0|1]
    @param state Light state. 
       - 0 = OFF 
       - 1 = ON 
-      - 2 = Toogle
+      - 2 = Toggle
       - 3 = no action
-   @param brightness Brightness [0 - 100]; -1 = No change
-   @param transition Brightness [0 - 100]; -1 = default
+   @param brightness Brightness [0 - 100]; -1 = No change; -2 = Next dimm value 
+   @param transition Transition speed [0 - 10]
    @param pub Publish / Save new status
    @param remote Values set remotely
 *********************************************************************************************** */
-void setLightState(int light, int state, int brightness, int transition, bool pub, bool remote) {
+void setLightState (int i, int state, int brightness, int transition, bool pub, bool remote) {
+  //i, 3, -1, 0, true, false
   bool newState = false;
   // Set new state
   if (state == 0) {
-    //chg = true;
     newState = false;
   } else if (state == 1) {
-    //chg = true;
     newState = true;
   } else if (state == 2) {
-    //chg = true;
-    if (light == 1) newState = !T1State;
-    #ifdef DOUBLE_DIMMER
-      else if (light == 2) newState = !T2State;
-    #endif
+    newState = !inst[i].tState;
   } else if (state == 3) {
-    if (light == 1) newState = T1State;
-    #ifdef DOUBLE_DIMMER
-      else if (light == 2) newState = T2State;
-    #endif
+    newState = inst[i].tState;
   }
   // Set transition speed
   if (transition >= 0) {
-    if (newState) {
-      transitionOn = transition;
-    } else {
-      transitionOff = transition;
-    }
+    inst[i].tTransition = transition;
   } else {
-    transitionOn = dconfig.transitionOn;
-    transitionOff = dconfig.transitionOff;
+    inst[i].tTransition = (newState) ? dconfig.transitionOn : dconfig.transitionOff;
   }
-  // Calculate light 1
-  if (light == 1) {
-    if (state != 3) {
-      if (Lgt1Dimm) {
-        if (brightness >= 0) {
-          T1Bright = brightness;
-        }
-        if (newState) T1Power = getPower(T1Bright, 1);
-        else T1Power = 0;
-        if (!Lgt1Trns || transition == 0) {
-          if(newState) {
-            T1Value = T1Power;
-          } else {
-            T1Value = 0;
-            T1DuCy = SEGMENTS;
-          }
-        }
-        #ifdef DEBUG_MODE
-          if (remote) {
-            writeDebug("Light 1 brightness set remotely", 3);
-          } else {
-            sprintf(tmpMsg0, "Light 1 brightness = %d", T1Bright);
-            writeDebug(tmpMsg0, 3);
-          }
-        #endif
-        if (Lgt1Trns && newState && T1Value < minPow1) {
-          T1Value = minPow1;
-        }
-        T1DuCy = powerToSegment(T1Value);
-      } else {
-        T1Value = (newState) ? 100 : 0;
-        T1DuCy = (newState) ? 0 : SEGMENTS;
-      }
-      T1State = newState;
-    }
-    // If publish flag is off, end here.
-    if (!pub) return;
-    // Save state
-    #ifdef PERSISTENT_STATE
-      if (!retain) {
-        saveLightState(1);
-      }
-    #endif
-    // Publish new state
-    mqttPublishStatus(1);
-    #ifdef DEBUG_MODE
-      // Show new status
-      if (state != 3) {
-        if (T1State) {
-          if (remote) {
-            writeDebug("Light 1 turned ON remotely", 3);
-          } else {
-            writeDebug("Light 1 On", 3);
-          }
-        } else {
-          if (remote) {
-            writeDebug("Light 1 turned OFF remotely", 3);
-          } else {
-            writeDebug("Light 1 Off", 3);
-          }
-        }
-      }
-    #endif
-    return;
+  if (state == 3) {
+    inst[i].eCntr = 0;
   }
-  #ifdef DOUBLE_DIMMER
-    if (light != 2) return;
-    if (state != 3) {
-      if (Lgt2Dimm) {
-        if (brightness >= 0) {
-          T2Bright = brightness;
+  else {
+    if (dconfig.iDimm[i]) {
+      if (brightness >= 0) {
+        inst[i].tBright = brightness;
+        inst[i].eCntr = 0;
+      } else if (brightness == -2) {
+        if (!inst[i].tState) {
+          inst[i].tBright = 0;
+          inst[i].tDirection = true;
         }
-        if (newState) T2Power = getPower(T2Bright, 1);
-        else T2Power = 0;
-        if (!Lgt2Trns || transition == 0) {
-          if(newState) {
-            T2Value = T2Power;
-          } else {
-            T2Value = 0;
-            T2DuCy = SEGMENTS;
-          }
-        }
-        #ifdef DEBUG_MODE
-          if (remote) {
-            writeDebug("Light 2 brightness set remotely", 3);
-          } else {
-            sprintf(tmpMsg0, "Light 2 brightness = %d", T2Bright);
-            writeDebug(tmpMsg0, 3);
-          }
-        #endif
-        if (Lgt2Trns && newState && T2Value < minPow2) {
-          T2Value = minPow2;
-        }
-        T2DuCy = powerToSegment(T2Value);
-      } else {
-        T2Value = (newState) ? 100 : 0;
-        T2DuCy = (newState) ? 0 : SEGMENTS;
-      }
-      T2State = newState;
-    }
-    // If publish flag is off, end here.
-    if (!pub) return;
-    // Save state
-    #ifdef PERSISTENT_STATE
-      if (!retain) {
-        saveLightState(2);
-      }
-    #endif
-    // Publish new state
-    mqttPublishStatus(2);
-    #ifdef DEBUG_MODE
-      // Show new status
-      if (state != 3) {
-        if (T2State) {
-          if (remote) {
-            writeDebug("Light 2 turned ON remotely", 3);
-          } else {
-            writeDebug("Light 2 On", 3);
-          }
+        if (inst[i].eCntr > 0) {
+          --inst[i].eCntr;
         } else {
-          if (remote) {
-            writeDebug("Light 2 turned OFF remotely", 3);
+          if (inst[i].tDirection) {
+            ++inst[i].tBright;  // Dimm up
           } else {
-            writeDebug("Light 2 Off", 3);
+            --inst[i].tBright;  // Dimm down
+          }
+          if(inst[i].tBright > 100) {
+            inst[i].tDirection = false;
+            inst[i].tBright = 100;
+            inst[i].eCntr = edgeSpeed;
+          } else if(inst[i].tBright < 0) {
+            inst[i].tDirection = true;
+            inst[i].tBright = 0;
+            inst[i].eCntr = edgeSpeed;
           }
         }
+      } else {
+        inst[i].eCntr = 0;
       }
-    #endif
+      #ifdef DEBUG_MODE
+        sprintf(tmpMsg0, "Light %d brightness = %d%s", (i + 1), inst[i].tBright, ((remote) ? ", set remotely" : " "));
+        writeDebug(tmpMsg0, 3);
+      #endif
+    } else {
+      inst[i].tTransition = 0;
+      inst[i].tBright = (newState) ? 100 : 0;
+    }
+    inst[i].tState = newState;
+  }
+  // If publish flag is off, end here.
+  if (!pub) return;
+  // Save state
+  #ifdef PERSISTENT_STATE
+    if (!dconfig.retain) {
+      saveLightState(i);
+    }
+  #endif
+  // Publish new state
+  mqttPublishStatus(i);
+  // Inform state in debug
+  #ifdef DEBUG_MODE
+    if (state == 3) return;
+    // Show new status
+    sprintf(tmpMsg0, "Light %d turned %s %s", (i + 1), ((inst[i].tState) ? "ON" : "OFF"), ((remote) ? "remotely" : ""));
+    writeDebug(tmpMsg0, 3);
   #endif
 }
 
@@ -2954,26 +2876,16 @@ void setLightState(int light, int state, int brightness, int transition, bool pu
 /** **********************************************************************************************
    Save light state to EEPROM
    
-   @param light Light number [1|2]
+   @param index Light index [0|1]
 *********************************************************************************************** */
-void saveLightState (int light) {
+void saveLightState (int index) {
   byte val;
-  if (light == 1) {
-    val = (T1State) ? 1 : 0;
-    EEPROM.write(0, val);
-    EEPROM.write(1, T1Bright);
-    val = (Led1Status) ? 1 : 0;
-    EEPROM.write(2, val);
-  } 
-  #ifdef DOUBLE_DIMMER
-    else if (light == 2) {
-      val = (T2State) ? 1 : 0;
-      EEPROM.write(5, val);
-      EEPROM.write(6, T2Bright);
-      val = (Led2Status) ? 1 : 0;
-      EEPROM.write(7, val);
-    }
-  #endif
+  int idx = index * 5;
+  val = (inst[index].tState) ? 1 : 0;
+  EEPROM.write(idx++, val);
+  EEPROM.write(idx++, inst[index].tBright);
+  val = (inst[index].iStatus) ? 1 : 0;
+  EEPROM.write(idx, val);
   EEPROM.commit();
 }
 
@@ -2981,22 +2893,18 @@ void saveLightState (int light) {
    Get lights state from EEPROM
 *********************************************************************************************** */
 void getLightState() {
+  bool stt;
   byte val;
-  transitionOn = 5;
-  val = EEPROM.read(0);
-  T1State = (val == 1) ? true : false;
-  T1Bright = EEPROM.read(1);
-  val = EEPROM.read(2);
-  Led1Status = (val == 1) ? true : false;
-  setLightState(1, T1State, T1Bright, CONFIG_TRANSITION_WAKE, true, false);
-  #ifdef DOUBLE_DIMMER
-    val = EEPROM.read(5);
-    T2State = (val == 1) ? true : false;
-    T2Bright = EEPROM.read(6);
-    val = EEPROM.read(7);
-    Led2Status = (val == 1) ? true : false;
-    setLightState(2, T2Bright, T1Bright, CONFIG_TRANSITION_WAKE, true, false);
-  #endif
+  int idx;
+  for (int i = 0; i < INSTANCE_NUM; i++) {
+    idx = i * 5;
+    val = EEPROM.read(idx++);
+    stt = (val == 1) ? true : false;
+    val = EEPROM.read(idx++);
+    setLightState(i, stt, (int)val, CONFIG_TRANSITION_WAKE, true, false);
+    val = EEPROM.read(idx);
+    inst[i].iStatus = (val == 1) ? true : false;
+  }
 }
 #endif
 
@@ -3024,20 +2932,13 @@ void configDefault() {
   dconfig.edgeTime = CONFIG_EDGE_TIME;
   dconfig.transitionOn = CONFIG_TRANSITION_ON;     // Transition speed to turn ON
   dconfig.transitionOff = CONFIG_TRANSITION_OFF;   // Transition speed to turn OFF
-  strcpy(dconfig.name01, CONFIG_MQTT_NAME01);
-  dconfig.Lgt1Dimm = CONFIG_LGT1_DIMM;
-  dconfig.Lgt1Trns = CONFIG_LGT1_TRNS;
-  dconfig.minPow1 = CONFIG_MIN_POW1;
-  #ifdef DOUBLE_DIMMER
-    strcpy(dconfig.name02, CONFIG_MQTT_NAME02);
-    dconfig.Lgt2Dimm = CONFIG_LGT2_DIMM;
-    dconfig.Lgt2Trns = CONFIG_LGT2_TRNS;
-    dconfig.minPow2 = CONFIG_MIN_POW2;
-  #endif
-  #ifdef DBL_CLICK
-    strcpy(dconfig.topicDouble, CONFIG_DBL_TOPIC);
-    strcpy(dconfig.payloadDouble, CONFIG_DBL_PAYLOAD);
-  #endif
+  for (int i = 0; i < INSTANCE_NUM; i++) {
+    strcpy(dconfig.iName[i], "");
+    dconfig.iDimm[i] = CONFIG_LGT_DIMM;
+    dconfig.iTrns[i] = CONFIG_LGT_TRNS;
+    dconfig.iMinPow[i] = CONFIG_MIN_POW;
+    dconfig.iBrightness[i] = CONFIG_BRIGHTNESS;
+  }
   // Define Edge Speed for dimmable range
   defineEdge();
 }
@@ -3050,7 +2951,7 @@ void loadConfig() {
   #ifdef DEBUG_MODE
     writeDebug("Mounting FS...", 1);
   #endif
-  mounted = SPIFFS.begin();
+  mounted = LittleFS.begin();
   if (!mounted) {
     #ifdef DEBUG_MODE
       writeDebug("Failed to mount FS", 1);
@@ -3060,7 +2961,7 @@ void loadConfig() {
   #ifdef DEBUG_MODE
     writeDebug("Mounted file system", 1);
   #endif
-  if (!SPIFFS.exists("/config.json")) {
+  if (!LittleFS.exists("/config.json")) {
     #ifdef DEBUG_MODE
       writeDebug("Config file does not exist, create a new one...", 1);
     #endif
@@ -3071,7 +2972,7 @@ void loadConfig() {
   #ifdef DEBUG_MODE
     writeDebug("Reading config file", 1);
   #endif
-  File configFile = SPIFFS.open("/config.json", "r");
+  File configFile = LittleFS.open("/config.json", "r");
   if (!configFile) {
     #ifdef DEBUG_MODE
     writeDebug("Failed to open configuration file", 1);
@@ -3083,24 +2984,27 @@ void loadConfig() {
   std::unique_ptr<char[]> buf(new char[size]);
   // Parse the JSON config string
   configFile.readBytes(buf.get(), size);
-  // JSON V5.0
-  //DynamicJsonBuffer jsonBuffer;
-  //JsonObject& json = jsonBuffer.parseObject(buf.get());
-  //if (!json.success()) {
-  //  #ifdef DEBUG_MODE
-  //    writeDebug("Failed to parse configuration file", 1);
-  //  #endif
-  //  return;
-  //}
-  // JSON V6.0
-  DynamicJsonDocument json(800);
-  auto error = deserializeJson(json, buf.get());
-  if (error) {
-    #ifdef DEBUG_MODE
-      writeDebug("Failed to parse configuration file", 1);
-    #endif
-    return;
-  }
+  #ifdef JSON6
+    // JSON V6.0
+    DynamicJsonDocument json(800);
+    auto error = deserializeJson(json, buf.get());
+    if (error) {
+      #ifdef DEBUG_MODE
+        writeDebug("Failed to parse configuration file", 1);
+      #endif
+      return;
+    }
+  #else
+    // JSON V5.0
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.parseObject(buf.get());
+    if (!json.success()) {
+      #ifdef DEBUG_MODE
+        writeDebug("Failed to parse configuration file", 1);
+      #endif
+      return;
+    }
+  #endif
   //
   #ifdef DEBUG_MODE
     writeDebug("Parsed config file", 1);
@@ -3126,42 +3030,52 @@ void loadConfig() {
   dconfig.edgeTime = json["edgeTime"] | dconfig.edgeTime;
   dconfig.transitionOn = json["transitionOn"] | dconfig.transitionOn;
   dconfig.transitionOff = json["transitionOff"] | dconfig.transitionOff;
-  strlcpy(dconfig.name01, json["name01"] | dconfig.name01, sizeof(dconfig.name01));
-  dconfig.Lgt1Dimm = json["Lgt1Dimm"] | dconfig.Lgt1Dimm;
-  dconfig.Lgt1Trns = json["Lgt1Trns"] | dconfig.Lgt1Trns;
-  dconfig.minPow1 = json["minPow1"] | dconfig.minPow1;
-  #ifdef DOUBLE_DIMMER
-    strlcpy(dconfig.name02, json["name02"] | dconfig.name02, sizeof(dconfig.name02));
-    dconfig.Lgt2Dimm = json["Lgt2Dimm"] | dconfig.Lgt2Dimm;
-    dconfig.Lgt2Trns = json["Lgt2Trns"] | dconfig.Lgt2Trns;
-    dconfig.minPow2 = json["minPow2"] | dconfig.minPow2;
-  #endif
-  #ifdef DBL_CLICK
-    strlcpy(dconfig.topicDouble, json["topicDouble"] | dconfig.topicDouble, sizeof(dconfig.topicDouble));
-    strlcpy(dconfig.payloadDouble, json["payloadDouble"] | dconfig.payloadDouble, sizeof(dconfig.payloadDouble));
-  #endif
+  int lgt;
+  for (int i = 0; i < INSTANCE_NUM; i++) {
+    lgt = i + 1;
+    sprintf(tmpMsg0, "name%d", lgt);
+    strlcpy(dconfig.iName[i], json[tmpMsg0] | dconfig.iName[i], sizeof(dconfig.iName[i]));
+    if (dconfig.LgtMode) {
+      sprintf(tmpMsg0, "LgtDimm%d", lgt);
+      dconfig.iDimm[i] = json[tmpMsg0] | dconfig.iDimm[i];
+      sprintf(tmpMsg0, "LgtTrns%d", lgt);
+      dconfig.iTrns[i] = json[tmpMsg0] | dconfig.iTrns[i];
+    } else {
+      dconfig.iDimm[i] = false;
+      dconfig.iTrns[i] = false;
+    }
+    sprintf(tmpMsg0, "minPow%d", lgt);
+    dconfig.iMinPow[i] = json[tmpMsg0] | dconfig.iMinPow[i];
+    dconfig.iMinPow[i] = (dconfig.iMinPow[i] < MIN_POW) ? MIN_POW : dconfig.iMinPow[i];
+    sprintf(tmpMsg0, "brightness%d", lgt);
+    dconfig.iBrightness[i] = json[tmpMsg0] | dconfig.iBrightness[i];
+  }
+  // Validate (backwards compatibility)
+  if (dconfig.LedBright > 100 || dconfig.LedBright < 0) {
+    dconfig.LedBright = CONFIG_LED_BRIGHT;
+  }
+  if (dconfig.LedDimm > 100 || dconfig.LedDimm < 0) {
+    dconfig.LedDimm = CONFIG_LED_DIMM;
+  }
+  if (dconfig.dimmTime > MAX_DIMM_TIME || dconfig.dimmTime < MIN_DIMM_TIME) {
+    dconfig.dimmTime = CONFIG_DIMMING_TIME;
+  }
+  if (dconfig.edgeTime > MAX_EDGE_TIME || dconfig.edgeTime < MIN_EDGE_TIME) {
+    dconfig.edgeTime = CONFIG_EDGE_TIME;
+  }
   // Set variables
   defineEdge();
-  retain = dconfig.retain;
-  transitionOn = dconfig.transitionOn;
-  transitionOff = dconfig.transitionOff;
-  LgtMode = dconfig.LgtMode;
-  LedBright = dconfig.LedBright;
-  LedDimm = dconfig.LedDimm;
-  LedDefault = dconfig.LedDefault;
-  minPow1 = (dconfig.minPow1 < MIN_POW) ? MIN_POW : dconfig.minPow1;
-  strlcpy(mqttTopics[0].uname, dconfig.name01, sizeof(mqttTopics[0].uname));
-  #ifdef DOUBLE_DIMMER
-    minPow2 = (dconfig.minPow2 < MIN_POW) ? MIN_POW : dconfig.minPow2;
-    strlcpy(mqttTopics[1].uname, dconfig.name02, sizeof(mqttTopics[1].uname));
-  #endif
-  setLightMode();
+  LedBright = calcLed(dconfig.LedBright);
+  LedDimm = calcLed(dconfig.LedDimm);
   #ifdef DEBUG_MODE
-    // JSON V5.0
-    //json.printTo(Serial);
-    // JSON V6.0
-    serializeJson(json, Serial);
-    writeDebug(" ");
+    #ifdef JSON6
+      // JSON V6.0
+      serializeJson(json, Serial);
+      writeDebug(" ");
+    #else
+      // JSON V5.0
+      json.printTo(Serial);
+    #endif
   #endif
   configFile.close();
 }
@@ -3179,11 +3093,14 @@ void saveConfig() {
   #ifdef DEBUG_MODE
     writeDebug("Saving config", 1);
   #endif
-  // JSON V5.0
-  //DynamicJsonBuffer jsonBuffer;
-  //JsonObject& json = jsonBuffer.createObject();
-  // JSON V6.0
-  DynamicJsonDocument json(800);
+  #ifdef JSON6
+    // JSON V6.0
+    DynamicJsonDocument json(800);
+  #else
+    // JSON V5.0
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.createObject();
+  #endif
   //  
   json["mqttport"] = dconfig.mqttport;
   json["mqttbroker"] = dconfig.mqttbroker;
@@ -3202,46 +3119,51 @@ void saveConfig() {
   json["edgeTime"] = dconfig.edgeTime;
   json["transitionOn"] = dconfig.transitionOn;
   json["transitionOff"] = dconfig.transitionOff;
-  json["name01"] = dconfig.name01;
-  json["Lgt1Dimm"] = dconfig.Lgt1Dimm;
-  json["Lgt1Trns"] = dconfig.Lgt1Trns;
-  json["minPow1"] = dconfig.minPow1;
-  #ifdef DOUBLE_DIMMER
-    json["name02"] = dconfig.name02;
-    json["Lgt2Dimm"] = dconfig.Lgt2Dimm;
-    json["Lgt2Trns"] = dconfig.Lgt2Trns;
-    json["minPow2"] = dconfig.minPow2;
-  #endif
-  #ifdef DBL_CLICK
-    json["topicDouble"] = dconfig.topicDouble;
-    json["payloadDouble"] = dconfig.payloadDouble;
-  #endif
+  int lgt;
+  for (int i = 0; i < INSTANCE_NUM; i++) {
+    lgt = i + 1;
+    sprintf(tmpMsg0, "name%d", lgt);
+    json[tmpMsg0] = dconfig.iName[i];
+    sprintf(tmpMsg0, "LgtDimm%d", lgt);
+    json[tmpMsg0] = dconfig.iDimm[i];
+    sprintf(tmpMsg0, "LgtTrns%d", lgt);
+    json[tmpMsg0] = dconfig.iTrns[i];
+    sprintf(tmpMsg0, "minPow%d", lgt);
+    json[tmpMsg0] = dconfig.iMinPow[i];
+    sprintf(tmpMsg0, "brightness%d", lgt);
+    json[tmpMsg0] = dconfig.iBrightness[i];
+  }
   //
   // Open file and print into it
-  File configFile = SPIFFS.open("/config.json", "w");
+  File configFile = LittleFS.open("/config.json", "w");
   if (!configFile) {
     #ifdef DEBUG_MODE
       writeDebug("Failed to open config file for writing", 1);
     #endif
-    mqttPublish(0, 0, "configuration save failed");
+    mqttPublish(0, 0, MQTT_MSG_SAVE_FAIL);
     return;
   }
-  // JSON V5.0
-  //json.printTo(configFile);
-  // JSON V6.0
-  serializeJson(json, configFile);
+  #ifdef JSON6
+    // JSON V6.0
+    serializeJson(json, configFile);
+  #else
+    // JSON V5.0
+    json.printTo(configFile);
+  #endif
   //
   configFile.close();
-  mqttPublish(0, 0, "configuration saved");
+  mqttPublish(0, 0, MQTT_MSG_SAVE);
   #ifdef DEBUG_MODE
-    // JSON V5.0
-    //json.printTo(Serial);
-    // JSON V6.0
-    serializeJson(json, Serial);
+    #ifdef JSON6
+      // JSON V6.0
+      serializeJson(json, Serial);
+    #else
+      // JSON V5.0
+      json.printTo(Serial);
+    #endif
     //
     writeDebug("");
   #endif
-  // End save
 }
 
 #ifdef SAVE_ON_RESET
@@ -3249,7 +3171,7 @@ void saveConfig() {
    Load status from before reset
 *********************************************************************************************** */
 void loadLastStatus() {
-  int n = 0;
+  //int n = 0;
   int addr = SAVE_ON_RESET_AT;
   #ifdef DEBUG_MODE
     writeDebug("Reading debug information", 1);
@@ -3269,7 +3191,7 @@ void loadLastStatus() {
   addr += EEPROM_readAnything(addr, wifiRstTtl3);
   addr += EEPROM_readAnything(addr, aliveCounter3);
   #ifdef DEBUG_MODE
-    sprintf(tmpMsg, "Got Info: (%d) %d, %d,  %d,  %d,  %d,  %d,  %d,  %d,  %d,  %d", addr, debugBoot, debugRst, resetDelay1, wifiRstCtr1, wifiRstTtl1, aliveCounter1, resetDelay2, wifiRstCtr2, wifiRstTtl2, aliveCounter2);
+    sprintf(tmpMsg, "Got Info: (%d) %d, %d,  %d,  %d,  %d,  %ld,  %d,  %d,  %d,  %ld", addr, debugBoot, debugRst, resetDelay1, wifiRstCtr1, wifiRstTtl1, aliveCounter1, resetDelay2, wifiRstCtr2, wifiRstTtl2, aliveCounter2);
     writeDebug(tmpMsg, 1);
   #endif
   // Increase Boot Count
@@ -3283,7 +3205,8 @@ void loadLastStatus() {
     writeDebug(tmpMsg0, 1);
   #endif
   addr = SAVE_ON_RESET_AT;
-  n = EEPROM_writeAnything(addr, debugBoot);
+  //n = EEPROM_writeAnything(addr, debugBoot);
+  EEPROM_writeAnything(addr, debugBoot);
   #ifdef DEBUG_MODE
     if (EEPROM.commit()) {
       writeDebug("Boot counter saved!", 1);
@@ -3371,11 +3294,13 @@ void clearStatus() {
     #ifdef DEBUG_MODE
       writeDebug("Cleared status values", 1);
     #endif
-    mqttPublish(0, 0, "status cleared");
+    mqttPublish(0, 0, MQTT_MSG_SC);
     return;
   }
-  writeDebug("Failed deleting values", 1);
-  mqttPublish(0, 0, "status not cleared");
+  #ifdef DEBUG_MODE
+    writeDebug("Failed deleting values", 1);
+  #endif
+  mqttPublish(0, 0, MQTT_MSG_SNC);
 }
 #endif
 
@@ -3388,7 +3313,7 @@ void clearStatus() {
 *********************************************************************************************** */
 template <class T> int EEPROM_writeAnything(int ee, const T& value) {
   const byte* p = (const byte*)(const void*)&value;
-  int i;
+  unsigned int i;
   for (i = 0; i < sizeof(value); i++) {
     EEPROM.write(ee++, *p++);
   }
@@ -3404,7 +3329,7 @@ template <class T> int EEPROM_writeAnything(int ee, const T& value) {
 *********************************************************************************************** */
 template <class T> int EEPROM_readAnything(int ee, T& value) {
   byte* p = (byte*)(void*)&value;
-  int i;
+  unsigned int i;
   for (i = 0; i < sizeof(value); i++) {
     *p++ = EEPROM.read(ee++);
   }
@@ -3418,18 +3343,17 @@ template <class T> int EEPROM_readAnything(int ee, T& value) {
   @param button Button Index
   @param pinId Hardware Pin
   @param eventState Active state
-  @param dbncInterval Debounce interval (ms)
-  @param longInterval Long press interval or repeat start interval (ms)
+  @param features Button features
+    - 1 = Long Press
+    - 2 = Repeat (Requires "Long Press")
+    - 4 = Multiple click
   @param repInterval Repeat interval (ms)
-  @param dblInterval Double click interval (ms)
 *********************************************************************************************** */
-int initButton(int button, int pinId, int eventState, int dbncInterval, int longInterval, int repInterval, int dblInterval) {
+void initButton(int button, int pinId, int eventState, int features, int repInterval) {
   myButtons[button].pinId = pinId;
   myButtons[button].eventState = eventState;
-  myButtons[button].dbncInterval = dbncInterval;
-  myButtons[button].longInterval = longInterval;
+  myButtons[button].features = features;
   myButtons[button].repInterval = repInterval;
-  myButtons[button].dblInterval = dblInterval;
   myButtons[button].state = !eventState;
   myButtons[button].lastState = !eventState;
 }
@@ -3439,117 +3363,125 @@ int initButton(int button, int pinId, int eventState, int dbncInterval, int long
 
   @param btnIndex Button Index
   @return Returns:
+    - 0 = No action
     - 1 = Button Down
     - 2 = Button Up
     - 3 = Button Up after long press
     - 4 = Button Up after repeat
     - 5 = Repeat
     - 6 = Double click
+    - 7 = Triple click
+    - 8 = Multi click
 *********************************************************************************************** */
 int getButtonStatus(int btnIndex) {
-  // Init return value and timer
-  int retVal = 0;
+  // Init timer
   unsigned long cTmr = millis();
   // Read the state of the button
   int reading = digitalRead(myButtons[btnIndex].pinId);
   // State changes reset the debounce timer
   if (reading != myButtons[btnIndex].lastState) {
     myButtons[btnIndex].btnTimer = cTmr;
+    myButtons[btnIndex].lastState = reading;
   }
-  // Different state detected
+  // Button sate changed
   if (reading != myButtons[btnIndex].state) {
-    // Compare the debounce timer
-    if ((unsigned long)(cTmr - myButtons[btnIndex].btnTimer) > myButtons[btnIndex].dbncInterval) {
-      // Whatever the reading is at, it's been there for longer than the debounce
-      //  delay, so change the actual state
-      myButtons[btnIndex].state = reading;
-      // Button Down 
-      if (myButtons[btnIndex].state == myButtons[btnIndex].eventState) {
-        retVal = 1;
-        // Reset the repetition flag and timer
-        myButtons[btnIndex].repFlag = false;
-        myButtons[btnIndex].repTimer = cTmr;
-      }
-      // Button Up with double click
-      else if (myButtons[btnIndex].dblFlag) {
-        myButtons[btnIndex].dblFlag = false;
-        retVal = 6;
-      } 
-      // Button Up after...
-      else if(myButtons[btnIndex].repFlag) {
-        // ... long press
-        if (myButtons[btnIndex].repInterval == 0) {
-          retVal = 3;
-        }
-        // ... repeat
-        else {
-          retVal = 4;
-        }
-      }
-      // Button Up, start double click detection
-      else if (myButtons[btnIndex].dblInterval > 0) {
-        myButtons[btnIndex].dblFlag = true;
-        myButtons[btnIndex].dblTimer = cTmr;
-      } 
-      // Button Up
-      else {
-        retVal = 2;
-      }
+    // Skip the rest of checking during debouncing
+    if ((unsigned long)(cTmr - myButtons[btnIndex].btnTimer) < BTN_DEBOUNCE) return 0;
+    // Whatever the reading is at, it's been there for longer than the debounce
+    //  delay, so change the actual state
+    myButtons[btnIndex].state = reading;
+    // Button DOWN...
+    if (myButtons[btnIndex].state == myButtons[btnIndex].eventState) {
+      // ... Reset the repetition flag and timer
+      myButtons[btnIndex].lngFlag = false;
+      myButtons[btnIndex].repTimer = cTmr;
+      return 1;
     }
-  } 
-  // Button is down
-  else if (myButtons[btnIndex].state == myButtons[btnIndex].eventState) {
-    if (myButtons[btnIndex].repFlag) {
-      if (myButtons[btnIndex].repInterval > 0) {
-        if ((unsigned long)(cTmr - myButtons[btnIndex].repTimer) > myButtons[btnIndex].repInterval) {
-          retVal = 5;
-          myButtons[btnIndex].repTimer = cTmr;
-        }
-      }
-    } else if (myButtons[btnIndex].longInterval > 0) {
-      if ((unsigned long)(cTmr - myButtons[btnIndex].repTimer) > myButtons[btnIndex].longInterval) {
-        myButtons[btnIndex].repTimer = cTmr;
-        // Set the repetition flag... if the event caused a repetition, it will not create a Button Up!
-        myButtons[btnIndex].repFlag = true;
-      }
+    // Button UP...
+    //  Long press/repeat enabled
+    if(myButtons[btnIndex].lngFlag) {
+      myButtons[btnIndex].clkCtr = 0;
+    // ... Repeat or Long press
+      if ((myButtons[btnIndex].features & 2) > 0) return 4;
+      return 3;
     }
-  } 
-  // A Button UP was detected previously, check double click timer
-  else if (myButtons[btnIndex].dblFlag) {
-    // Check if the double click timer has expired
-    if ((unsigned long)(cTmr - myButtons[btnIndex].dblTimer) > myButtons[btnIndex].dblInterval) {
-      myButtons[btnIndex].dblFlag = false;
-      retVal = 2;
+    // If double/multi click is enabled...
+    if ((myButtons[btnIndex].features & 12) > 0) {
+      // ... count the number of "clicks"
+      myButtons[btnIndex].clkCtr++;
+      myButtons[btnIndex].dblTimer = cTmr;
+      return 0;
     }
+    // Reset count and return "button up" value
+    myButtons[btnIndex].clkCtr = 0;
+    return 2;
   }
-  myButtons[btnIndex].lastState = reading;
-  return retVal;
-}
-
-/** **********************************************************************************************
-   Publish the double click
-*********************************************************************************************** */
-void defineButtons() {
-  // Initialize Buttons
-  #ifdef DBL_CLICK
-    initButton(0, PIN_BUTTON1, LOW, 70, BTN_LONG_PRESS, dconfig.dimmTime, DBL_CLICK_INTERVAL);
-  #else
-    initButton(0, PIN_BUTTON1, LOW, 70, BTN_LONG_PRESS, dconfig.dimmTime, 0);
-  #endif
-  #ifdef DOUBLE_DIMMER
-    #ifdef DBL_CLICK
-      initButton(1, PIN_BUTTON2, LOW, 70, BTN_LONG_PRESS, dconfig.dimmTime, DBL_CLICK_INTERVAL);
-    #else
-      initButton(1, PIN_BUTTON2, LOW, 70, BTN_LONG_PRESS, dconfig.dimmTime, 0);
-    #endif
-  #endif
+  // Button is down
+  if (myButtons[btnIndex].state == myButtons[btnIndex].eventState) {
+    if (myButtons[btnIndex].lngFlag) {
+      if ((myButtons[btnIndex].features & 2) > 0 && (unsigned long)(cTmr - myButtons[btnIndex].repTimer) > myButtons[btnIndex].repInterval) {
+        myButtons[btnIndex].repTimer = cTmr;
+        return 5;
+      }
+    }
+    else if ((myButtons[btnIndex].features & 1) > 0) {
+      if ((unsigned long)(cTmr - myButtons[btnIndex].repTimer) > BTN_LONG_PRESS) {
+        myButtons[btnIndex].repTimer = cTmr;
+        // Set the repetition flag...
+        myButtons[btnIndex].lngFlag = true;
+        // If repetition is on, start repeat cycle
+        if ((myButtons[btnIndex].features & 2) > 0) return 5;
+      }
+    }
+    return 0;
+  }
+  // Button is up
+  if ((myButtons[btnIndex].features & 4) > 0 && myButtons[btnIndex].clkCtr > 0) {
+    // Check if the double click timer has expired
+    if ((unsigned long)(cTmr - myButtons[btnIndex].dblTimer) < DBL_CLICK_INTERVAL) return 0;
+    int cntr = myButtons[btnIndex].clkCtr;
+    myButtons[btnIndex].clkCtr = 0;
+    // Multi-click
+    if (cntr >= MULT_CLICK_COUNT) {
+      return 8;
+    }
+    // Triple-click
+    else if (cntr >= 3) {
+      return 7;
+    }
+    // Double-click
+    else if (cntr >= 2) {
+      return 6;
+    }
+    // Button UP
+    return 2;
+  }
+  return 0;
 }
 
 /** **********************************************************************************************
    Calcuate the edge timers
 *********************************************************************************************** */
-void defineEdge() {
-  edgeSpeed = (dconfig.edgeTime * 100) / dconfig.dimmTime;
+void defineEdge () {
+  edgeSpeed = dconfig.edgeTime / calcRep();
+}
+
+/** **********************************************************************************************
+   Calcuate the LED timers
+  @param level Brigthness level (0-100). -1 sets to default.
+  @return Returns the PWM dutty cycle for the LEDs
+*********************************************************************************************** */
+int calcLed (int bright) {
+  return ((bright < 0) ? dconfig.LedBright : bright) * LED_PWM / 100;
+}
+
+/** **********************************************************************************************
+   Calcuate the repetition for buttons
+   
+  @return Returns the button repetition in ms
+*********************************************************************************************** */
+int calcRep () {
+  return dconfig.dimmTime / 100;
 }
 
 /** **********************************************************************************************
@@ -3564,6 +3496,48 @@ void goToSetupMode() {
   ESP.rtcUserMemoryWrite(DRD_ADDRESS, &data, sizeof(data));
   ESP.reset();
 }
+
+#ifdef OTA_HTTP
+/** **********************************************************************************************
+   HTTP Update started
+*********************************************************************************************** */
+void http_update_started() {
+  #ifdef DEBUG_MODE
+    writeDebug("HTTP update process started", 1);
+  #endif
+}
+
+/** **********************************************************************************************
+   HTTP Update finished
+*********************************************************************************************** */
+void http_update_finished() {
+  #ifdef DEBUG_MODE
+    writeDebug("HTTP update process finished", 1);
+  #endif
+}
+
+/** **********************************************************************************************
+   HTTP Update progress
+*********************************************************************************************** */
+void http_update_progress(int cur, int total) {
+  yield();
+  #ifdef DEBUG_MODE
+    sprintf(tmpMsg, "HTTP update process at %d of %d bytes...", cur, total);
+    writeDebug(tmpMsg, 1);
+  #endif
+}
+
+/** **********************************************************************************************
+   HTTP Update error
+*********************************************************************************************** */
+void http_update_error(int err) {
+  #ifdef DEBUG_MODE
+    sprintf(tmpMsg, "HTTP update fatal error code %d", err);
+    writeDebug(tmpMsg, 1);
+  #endif
+}
+#endif
+
 
 /** **********************************************************************************************
    Setup function
@@ -3588,6 +3562,19 @@ void setup() {
     digitalWrite(PIN_TM2, LOW);
   #endif
   delay(10);
+
+  /* ------------------------------------------------------------------------------
+     Service variables
+     ------------------------------------------------------------------------------ */
+  int i;
+  inst[0].tPin = PIN_TM1;
+  inst[0].bPin = PIN_BUTTON1;
+  inst[0].iPin = PIN_LED1;
+  #if INSTANCE_NUM > 1
+    inst[1].tPin = PIN_TM2;
+    inst[1].bPin = PIN_BUTTON2;
+    inst[1].iPin = PIN_LED2;
+  #endif
   
   /* ------------------------------------------------------------------------------
      Enable debugging
@@ -3609,13 +3596,23 @@ void setup() {
      Read device configuration
      ------------------------------------------------------------------------------ */
   // Clean FS - Uncomment to re-format during testing
-  //SPIFFS.format();
+  //LittleFS.format();
 
   // Set default values for configuration
   configDefault();
 
   // Load configuration
   loadConfig();
+
+  // Buttons and Default values for instances
+  for (i = 0; i < INSTANCE_NUM; i++) {
+    initButton(i, inst[i].bPin, LOW, 7, calcRep());
+    inst[i].tBright = dconfig.iBrightness[i];
+    inst[i].tState = inst[i].tDirection = false;
+    inst[i].tValue = inst[i].tPower = 0;
+    inst[i].tCntr = inst[i].tTransition = 0;
+    inst[i].iStatus = true;
+  }
 
   /* ------------------------------------------------------------------------------
      Enter Setup Portal on double reset
@@ -3626,7 +3623,6 @@ void setup() {
     #endif
     // Show config mode by flashing the LEDs at a 1 sec. interval
     ticker.attach(0.5, flashLed);
-
     //
     // WiFiManager
     //
@@ -3642,30 +3638,31 @@ void setup() {
     #ifdef MQTT_SIGN
       WiFiManagerParameter custom_mqtt_key("mqtt_key", "MQTT shared key", dconfig.mqttkey, 40);
     #endif
-    WiFiManagerParameter custom_mqtt_name01("name01", "Light 1 name", dconfig.name01, 40);
-    #ifdef DOUBLE_DIMMER
-      WiFiManagerParameter custom_mqtt_name02("name02", "Light 2 name", dconfig.name02, 40);
+    WiFiManagerParameter custom_mqtt_name0("name1", "Light 1 name", dconfig.iName[0], 40);
+    #if INSTANCE_NUM > 1
+      WiFiManagerParameter custom_mqtt_name1("name2", "Light 2 name", dconfig.iName[1], 40);    
     #endif
-    #ifdef DBL_CLICK
-      WiFiManagerParameter custom_mqtt_dblTpc("topicDouble", "Double click topic", dconfig.topicDouble, 40);
-      WiFiManagerParameter custom_mqtt_dblPay("payloadDouble", "Double click payload", dconfig.payloadDouble, 40);
+    #if INSTANCE_NUM > 2
+      WiFiManagerParameter custom_mqtt_name2("name3", "Light 3 name", dconfig.iName[2], 40);    
     #endif
-
+    #if INSTANCE_NUM > 3
+      WiFiManagerParameter custom_mqtt_name3("name4", "Light 4 name", dconfig.iName[4], 40);    
+    #endif
     // Create the instance of WiFiManager
     // Local intialization. Once its business is done, there is no need to keep it around
     WiFiManager wifiManager;
-
+    //
     // Set config save notify callback
     wifiManager.setSaveConfigCallback(saveConfigCallback);
-
+    //
     // Timeout
     #ifdef CONFIG_TIMEOUT
       wifiManager.setConfigPortalTimeout(CONFIG_TIMEOUT);
     #endif
-
+    //
     // Set static ip;
     //wifiManager.setAPStaticIPConfig(IPAddress(10, 0, 1, 99), IPAddress(10, 0, 1, 1), IPAddress(255, 255, 255, 0));
-
+    //
     // Add the MQTT parameters to the WiFi manager
     wifiManager.addParameter(&custom_device_id);
     wifiManager.addParameter(&custom_mqtt_broker);
@@ -3676,18 +3673,20 @@ void setup() {
     #ifdef MQTT_SIGN
       wifiManager.addParameter(&custom_mqtt_key);
     #endif
-    wifiManager.addParameter(&custom_mqtt_name01);
-    #ifdef DOUBLE_DIMMER
-      wifiManager.addParameter(&custom_mqtt_name02);
+    wifiManager.addParameter(&custom_mqtt_name0);
+    #if INSTANCE_NUM > 1
+      wifiManager.addParameter(&custom_mqtt_name1);
     #endif
-    #ifdef DBL_CLICK
-      wifiManager.addParameter(&custom_mqtt_dblTpc);
-      wifiManager.addParameter(&custom_mqtt_dblPay);
+    #if INSTANCE_NUM > 2
+      wifiManager.addParameter(&custom_mqtt_name2);
     #endif
-    
+    #if INSTANCE_NUM > 3
+      wifiManager.addParameter(&custom_mqtt_name3);
+    #endif
+    //
     // Reset settings - Uncomment to clean parameters during testing
     wifiManager.resetSettings();
-
+    //
     // Fetches SSID and PASS and tries to connect...
     // If it does not connect it starts an access point with the specified name
     // here TITLE and goes into a blocking loop awaiting configuration
@@ -3705,7 +3704,6 @@ void setup() {
       ESP.reset();
       delay(3000);
     }
-
     //
     // Save User Configuration to FS
     //
@@ -3721,13 +3719,15 @@ void setup() {
       #ifdef MQTT_SIGN
         strcpy(dconfig.mqttkey, custom_mqtt_key.getValue());
       #endif
-      strcpy(dconfig.name01, custom_mqtt_name01.getValue());
-      #ifdef DOUBLE_DIMMER
-        strcpy(dconfig.name02, custom_mqtt_name02.getValue());
+      strcpy(dconfig.iName[0], custom_mqtt_name0.getValue());
+      #if INSTANCE_NUM > 1
+        strcpy(dconfig.iName[1], custom_mqtt_name1.getValue());
       #endif
-      #ifdef DBL_CLICK
-        strcpy(dconfig.topicDouble, custom_mqtt_dblTpc.getValue());
-        strcpy(dconfig.payloadDouble, custom_mqtt_dblPay.getValue());
+      #if INSTANCE_NUM > 2
+        strcpy(dconfig.iName[2], custom_mqtt_name2.getValue());
+      #endif
+      #if INSTANCE_NUM > 3
+        strcpy(dconfig.iName[3], custom_mqtt_name3.getValue());
       #endif
       // Save the configuration
       saveConfig();
@@ -3743,11 +3743,7 @@ void setup() {
   /* ------------------------------------------------------------------------------
      Initialization
      ------------------------------------------------------------------------------ */
-     
-  #ifdef DEBUG_MODE
-    writeDebug("Normal Boot", 1);
-  #endif
-
+  
   #if defined(SAVE_ON_RESET) || defined(PERSISTENT_STATE)
     // Start EEPROM
     #ifdef DEBUG_MODE
@@ -3761,13 +3757,9 @@ void setup() {
     loadLastStatus();
   #endif
   
-  // Define MQTT Topics
-  mqttDefineTopics();
-  
   // Start Network
   if (WiFi.SSID()) {
     wifiBegin();
-    mqttBegin();
   }
   #ifdef DEBUG_MODE
     else {
@@ -3782,7 +3774,7 @@ void setup() {
     otaEnabled = false;
     if (wifiSetup) {
       int wt = 0;
-      // Wait up to 5 seconds for WiFi... otherwise start without OTA
+      // Wait up to 8 seconds for WiFi... otherwise start without OTA
       do {
         #ifdef DEBUG_MODE
           writeDebug("Wait for WiFi for OTA...", 2);
@@ -3790,7 +3782,7 @@ void setup() {
         delay(500);
         ++wt;
         otaEnabled = (WiFi.waitForConnectResult() == WL_CONNECTED) ? true : false;
-      } while (wt < 10 && !otaEnabled);
+      } while (wt < 16 && !otaEnabled);
     }
     // If WiFi is available, configure OTA updates
     if (otaEnabled) {
@@ -3800,12 +3792,22 @@ void setup() {
           writeDebug("Request update to remote HTTP server", 1);
         #endif
         // Request for the latest image
-        t_httpUpdate_return ret = ESPhttpUpdate.update(OTA_HTTP_SERVER, OTA_HTTP_PORT, OTA_SCRIPT_NAME, OTA_IMAGE_VERSION);
+        WiFiClient client;
+        ESPhttpUpdate.setLedPin(PIN_LED1, HIGH);
+        ESPhttpUpdate.onStart(http_update_started);
+        ESPhttpUpdate.onEnd(http_update_finished);
+        ESPhttpUpdate.onProgress(http_update_progress);
+        ESPhttpUpdate.onError(http_update_error);
+        #ifdef OTA_HTTP_URL
+          t_httpUpdate_return ret = ESPhttpUpdate.update(client, OTA_HTTP_URL, OTA_IMAGE_VERSION);
+        #else
+          t_httpUpdate_return ret = ESPhttpUpdate.update(client, OTA_HTTP_SERVER, OTA_HTTP_PORT, OTA_SCRIPT_NAME, OTA_IMAGE_VERSION);
+        #endif
         #ifdef DEBUG_MODE
           // Report results
           switch(ret) {
             case HTTP_UPDATE_FAILED:
-              sprintf(tmpMsg, "OTA HTTP Update failed (%d): %s", , ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+              sprintf(tmpMsg, "OTA HTTP Update failed (%d): %s", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
               writeDebug(tmpMsg, 1);
               break;
             case HTTP_UPDATE_NO_UPDATES:
@@ -3840,23 +3842,18 @@ void setup() {
             }
           #endif
           // Turn off lights
-          T1State = false;
-          T1Value = T1Power = 0;
-          T1DuCy = powerToSegment(T1Value);
-          #ifdef DOUBLE_DIMMER
-            T2State = false;
-            T2Value = T2Power = 0;
-            T2DuCy = powerToSegment(T2Value);
-          #endif
-          delay(200);
+          for (int i = 0; i < INSTANCE_NUM; i++) {
+            setLightState(i, 0, 0, 0, false, false);
+          }
+          delay(300);
           // End dimmer interruptions
-          detachInterrupt(digitalPinToInterrupt(PIN_ZCROSS ));
+          detachInterrupt(digitalPinToInterrupt(PIN_ZCROSS));
           timer1_detachInterrupt();
           // Disconnect MQTT
           mqttDisconnect();
           // Un-mount File System
           if (mounted) {
-            SPIFFS.end();
+            LittleFS.end();
           }
           // Set the flag to start 
           otaUpdating = true;
@@ -3895,11 +3892,20 @@ void setup() {
       #endif
     }
   #endif
-  
+
   /* ------------------------------------------------------------------------------
      Dimmer setup
      ------------------------------------------------------------------------------ */
-  defineButtons();
+  #ifdef DEBUG_MODE
+    writeDebug("Normal Boot", 1);
+  #endif
+
+  // Define MQTT Topics
+  mqttDefineTopics();
+  
+  if (wifiSetup) {
+    mqttBegin();
+  }
   
   // Detect AC frequency and Zero Pulse duration
   #ifdef DEBUG_MODE
@@ -3910,9 +3916,9 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(PIN_ZCROSS ), zeroCrossSetup, CHANGE);
   while (inSetup) {
     // Flash LEDs during setup (5 per second)
-    tmr1 = millis();
-    if(tmr1 > tmr2) {
-      tmr2 = tmr1 + 100;
+    tmrOff = millis();
+    if(tmrOff > tmrOvf) {
+      tmrOvf = tmrOff + 100;
       flashLed();
     }
     yield();
@@ -3927,22 +3933,25 @@ void setup() {
   #ifdef DEBUG_MODE
     writeDebug("Start dimmer.", 3);
   #endif
+  // Set default state for indicators
+  // Set the initial state for indicators
+  for (i = 0; i < INSTANCE_NUM; i++) {
+    inst[i].iStatus = dconfig.LedDefault;
+  }
+  // Interrups for ZC and setup for TRIAC timers
+  tmr[0] = pulseH + frecTic;
+  tmrOvf = offTic + tmr[0];
   timer1_isr_init();
   timer1_attachInterrupt(triggerTriacs);
   timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
   attachInterrupt(digitalPinToInterrupt(PIN_ZCROSS ), zeroCross, RISING);
-  // Set the initial status for indicators
-  #ifdef DOUBLE_DIMMER
-    Led1Status = Led2Status = LedDefault;
-  #else
-    Led1Status = LedDefault;
-  #endif
-  if (!retain) {
+  if (!dconfig.retain) {
     goLive = 1;
     #ifdef PERSISTENT_STATE
       getLightState();
     #endif
   }
+  sysMillis = millis();
 }
 
 /** **********************************************************************************************
@@ -3952,12 +3961,10 @@ void loop() {
   /* ------------------------------------------------------------------------------
      Handle OTA updates
      ------------------------------------------------------------------------------ */
-  #ifdef OTA_UPDATES
-    #if !defined(OTA_HTTP)
-      if (otaEnabled) {
-        ArduinoOTA.handle();
-      }
-    #endif
+  #if defined(OTA_UPDATES) && !defined(OTA_HTTP)
+    if (otaEnabled) {
+      ArduinoOTA.handle();
+    }
   #endif
 
   /* ------------------------------------------------------------------------------
@@ -3973,11 +3980,11 @@ void loop() {
     }
     // Refresh net check timer
     netMillis = cTmr;
-    // Reset debug fail couter
+    // Reset net fail second couter
     resetDelay = 0;
   } else {
     // Reconnect, but not every cycle, peventing conection hang times...
-    //  Attemp to reconnect every 2.5 seconds
+    //  Attemp to reconnect every NET_RECONNECT milliseconds (2.5 sec. aprox)
     if (netFirst || (unsigned long)(cTmr - netMillis) > NET_RECONNECT) {
       netFirst = false;
       netConnect();
@@ -3988,203 +3995,67 @@ void loop() {
   }
   
   /* ------------------------------------------------------------------------------
-     Keep track of running time (not acurate)
+     Keep track of running time
      ------------------------------------------------------------------------------ */
   systemTimer();
   
   /* ------------------------------------------------------------------------------
      Set action for buttons depending on status
      ------------------------------------------------------------------------------ */
-  // Check button status
-  int btn1 = getButtonStatus(0);
-  // Button 1 down
-  if (btn1 == 1) {
-    // Any user activity deactivates the GoLive sequence
-    goLiveOff(); 
-  }
-  // Button 1 UP = Toogle light status
-  else if (btn1 == 2) {
-    edgeCntr1 = 0;
-    setLightState(1, 2, T1Bright, -1, true, false);
-  }
-  // Button 1 UP after long press = toogle switch or report light status
-  else if (btn1 == 3 || btn1 == 4) {
-    if (Lgt1Dimm) {
-      edgeCntr1 = 0;
-      setLightState(1, 3, -1, 0, true, false);
-    } else {
-      setLightState(1, 2, T1Bright, -1, true, false);
-    }
-  }
-  // Button 1 Repeat with dimmer enabled
-  else if (Lgt1Dimm && btn1 == 5) {
-    if (!T1State) {
-      T1Bright = 0;
-      T1Direction = true;
-    }
-    if (edgeCntr1 > 0) {
-      --edgeCntr1;
-    } else {
-      if (T1Direction) {
-        ++T1Bright;  // Dimm up
-      } else {
-        --T1Bright;  // Dimm down
-      }
-      if(T1Bright > 100) {
-        T1Direction = false;
-        T1Bright = 100;
-        edgeCntr1 = edgeSpeed;
-      } else if(T1Bright < 0) {
-        T1Direction = true;
-        T1Bright = 0;
-        edgeCntr1 = edgeSpeed;
-      }
-      setLightState(1, 1, T1Bright, 0, false, false);
-    }
-  }
-  #if defined(DBL_CLICK) || defined(MULT_CLICK)
-    else if(btn1 == 6) {
-      #ifdef DBL_CLICK
-        mqttPublish(2, 0, dconfig.payloadDouble, false);
-      #endif
-      #ifdef MULT_CLICK
-        #ifdef DEBUG_MODE
-          writeDebug("Multi-click count ", 1);
-        #endif
-        if (multiClickCnt == 0) {
-          multiClickTmr = cTmr;
-        }
-        if ((unsigned long)(cTmr - multiClickTmr) > MULT_CLICK_INTERVAL) {
-          multiClickCnt = 0;
-        }
-        ++multiClickCnt;
-        if (multiClickCnt >= MULT_CLICK_COUNT) {
-          goToSetupMode();
-        }
-      #endif
-    }
+  int btn;
+  #ifdef DBL_CLICK
+    char pyl[4];
   #endif
-  #ifdef MULT_CLICK
-    if (multiClickCnt > 0) {
-      if ((unsigned long)(cTmr - multiClickTmr) > MULT_CLICK_INTERVAL) {
-        multiClickCnt = 0;
-      }
-    }
-  #endif
-
-  #ifdef DOUBLE_DIMMER
-    int btn2 = getButtonStatus(1);
-    ////////////////////////////////////////////////////////////////////////////////
-    // Set action for button 2 depending on status
-    ////////////////////////////////////////////////////////////////////////////////
-    // Button 2 UP
-    if (btn2 == 1) {
+  for (int i = 0; i < INSTANCE_NUM; i++) {
+    btn = getButtonStatus(i);
+    // Button down
+    if (btn == 1) {
       // Any user activity deactivates the GoLive sequence
-      goLiveOff();
+      goLiveOff(); 
     }
-    // Button 2 UP
-    else if (btn2 == 2) {
-      edgeCntr1 = 0;
-      setLightState(2, 2, T2Bright, -1, true, false);
+    // Button UP = Toggle light status
+    else if (btn == 2) {
+      setLightState(i, 2, -1, -1, true, false);
     }
-    // Button 2 UP after long press
-    else if (btn2 == 3 || btn2 == 4) {
-      if (Lgt2Dimm) {
-        edgeCntr1 = 0;
-        setLightState(2, 3, -1, 0, true, false);
+    // Button UP after long press = toggle switch or report light status
+    else if (btn == 3 || btn == 4) {
+      if (dconfig.iDimm[i]) {
+        setLightState(i, 3, -1, 0, true, false);
       } else {
-        setLightState(2, 2, T2Bright, -1, true, false);
+        setLightState(i, 2, -1, -1, true, false);
       }
     }
-    // Button 2 Repeat with dimmer enabled
-    else if (Lgt2Dimm && btn2 == 5) {
-      if (!T2State) {
-        T2Bright = 0;
-        T2Direction = true;
-      }
-      if (edgeCntr2 > 0) {
-        --edgeCntr2;
-      } else {
-        if (T2Direction) {
-          ++T2Bright;  // Dimm up
-        } else {
-          --T2Bright;  // Dimm down
-        }
-        if(T2Bright > 100) {
-          T2Direction = false;
-          T2Bright = 100;
-          edgeCntr2 = edgeSpeed;
-        } else if(T2Bright < 0) {
-          T2Direction = true;
-          T2Bright = 0;
-          edgeCntr2 = edgeSpeed;
-        }
-        setLightState(2, 1, T2Bright, 0, false, false);
-      }
+    // Button Repeat with dimmer enabled
+    else if (dconfig.iDimm[i] && btn == 5) {
+      setLightState(i, 1, -2, 0, false, false);
     }
-    #if defined(DBL_CLICK) || defined(MULT_CLICK)
-      else if(btn2 == 6) {
-        #ifdef DBL_CLICK
-          mqttPublish(2, 0, dconfig.payloadDouble, false);
+    #ifdef DBL_CLICK
+      else if(btn == 6) {
+        #ifdef DEBUG_MODE
+          writeDebug("Double-click button", 1);
         #endif
-        #ifdef MULT_CLICK
-          #ifdef DEBUG_MODE
-            writeDebug("Multi-click count " ,1);
-          #endif
-          if (multiClickCnt2 == 0) {
-            multiClickTmr2 = cTmr;
-          }
-          if ((unsigned long)(cTmr - multiClickTmr2) > MULT_CLICK_INTERVAL) {
-            multiClickCnt2 = 0;
-          }
-          ++multiClickCnt2;
-          if (multiClickCnt2 >= MULT_CLICK_COUNT) {
-            goToSetupMode();
-          }
+        sprintf(pyl, "dc%d", (i + 1));
+        mqttPublish(2, i, pyl, false);
+      }
+      else if(btn == 7) {
+        #ifdef DEBUG_MODE
+          writeDebug("Triple-click button", 1);
         #endif
+        sprintf(pyl, "tc%d", (i + 1));
+        mqttPublish(2, i, pyl, false);
       }
     #endif
     #ifdef MULT_CLICK
-      if (multiClickCnt2 > 0) {
-        if ((unsigned long)(cTmr - multiClickTmr2) > MULT_CLICK_INTERVAL) {
-          multiClickCnt2 = 0;
-        }
+      else if(btn == 8) {
+        #ifdef DEBUG_MODE
+          writeDebug("Multi-click button", 1);
+        #endif
+        goToSetupMode();
       }
     #endif
-  #endif
+  }
   ////////////////////////////////////////////////////////////////////////////////
   // Set the LED indicator brightness
   ////////////////////////////////////////////////////////////////////////////////
-  unsigned long lTmr = micros();
-  if (lTmr > LedPwm || lTmr < LedOvf) {
-    flashLed();
-    if (ledsState) {
-      #ifdef DOUBLE_DIMMER
-        if (T1State || T2State) {
-          LedPwm = lTmr + LedBright;
-        }
-      #else
-        if (T1State) {
-          LedPwm = lTmr + LedDimm;
-        }
-      #endif
-      else {
-        LedPwm = lTmr + LedDimm;
-      }
-    } else {
-      #ifdef DOUBLE_DIMMER
-        if (T1State || T2State) {
-          LedPwm = lTmr + (CONFIG_LED_BRIGHT - LedBright);
-        }
-      #else
-        if (T1State) {
-          LedPwm = lTmr + (CONFIG_LED_BRIGHT - LedBright);
-        }
-      #endif
-      else {
-        LedPwm = lTmr + (CONFIG_LED_BRIGHT - LedDimm);
-      }
-    }
-  }
-  LedOvf = lTmr;
+  handleLed();
 }
