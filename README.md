@@ -32,6 +32,7 @@ The Dimmer functionality is achieved using the phase control method, using a TRI
 
 Features:
 * Lights can be dimmed from 10% to 100% power.
+* The minimum power is configurable for different types of bulbs and environments.
 *	Supports transitions between brightness levels.
 *	One push button per light bulb to control the ON/OFF state and brightness.
 *	A LED indicator for each button/light bulb.
@@ -43,7 +44,7 @@ Features:
 *	Setup Portal over WiFi, to configure WiFi/MQTT parameters.
 *	The Setup Portal is started by a double reset or optionally with multi-click of any of the light buttons.
 *	On Power Up the device resets to the last known state, using MQTT retain or EEPROM.
-*	Optional double click to trigger additional actions.
+*	Optional double and triple click to trigger additional actions.
 *	Advanced configuration through MQTT.
 
 For mor details check the documentation at: https://github.com/jamozu/DoubleDimmer/blob/main/RRoble_Double_Dimmer.pdf
