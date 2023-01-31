@@ -150,6 +150,11 @@
   - Make variable frequency dynamic.
   - Refine "Minimum Turn On Brightness" (minTUB) to include button activity.
 
+  ----------------
+  0.8.06
+
+  - Some cleanup
+  
   ------------------------------------------------------------------------------------------------
   Todo
   ------------------------------------------------------------------------------------------------
@@ -164,8 +169,8 @@
   ------------------------------------------------------------------------------------------------
   ------------------------------------------------------------------------------------------------
   @author Jesus Amozurrutia Elizalde <jamozu@gmail.com>
-  @version 0.8.05
-  @date 2023/01/24
+  @version 0.8.06
+  @date 2023/01/25
   @since Friday February 01 2019, 10:32:00
   @copyright MIT license
   @pre Device: ESP-12E (ESP8266)
@@ -182,11 +187,11 @@
    Device identification
    -------------------------------------------------------------------------------------------- */
 // Hardware version
-#define HVERSION                          "01"
-#define HVERSION_NUM                      1
+#define HVERSION                          "02"
+#define HVERSION_NUM                      2
 
 // Software version
-#define SVERSION                          "0.8.05"
+#define SVERSION                          "0.8.06"
 
 // Title for the application
 #define DEVICE_TITLE                      "RRoble Dimmer Switch"
@@ -404,12 +409,13 @@
 /* -------------------------------------------------------------------------------------------- 
     OTA through HTTP Server (Overrides Direct OTA Updates)
    -------------------------------------------------------------------------------------------- */
-#define OTA_HTTP_SERVER                   "my_server_name"
+// Define the next 4 parameters to update from an HTTP Server
+#define OTA_HTTP_SERVER                   "your_server_name"
 #define OTA_HTTP_PORT                     80
-#define OTA_SCRIPT_NAME                   "/update_program_url"
+#define OTA_SCRIPT_NAME                   "your_path/updatedimmer.php"
                   
 // Another option is to define the Http server in a single line
-//#define OTA_HTTP_URL                    "http://my_server_name/update_program_url"
+//#define OTA_HTTP_URL                    "http://your_server_name/your_path/updatedimmer.php"
 
 
 /* -------------------------------------------------------------------------------------------- 
@@ -689,7 +695,8 @@
         #warning "Hardware version E01"
       #endif
     #endif
-  #else
+  #endif
+  #ifdef DIMMER_MODE
     #if INSTANCE_NUM == 4
       #warning "Hardware version Q01"
     #elif INSTANCE_NUM == 3
@@ -723,7 +730,8 @@
         #warning "Hardware version E02"
       #endif
     #endif
-  #else
+  #endif
+  #ifdef DIMMER_MODE
     #if INSTANCE_NUM == 4
       #warning "Hardware version Q02"
     #elif INSTANCE_NUM == 3
@@ -2611,7 +2619,8 @@ void mqttPublishStatus (int index) {
     if (index != i && index != -1) continue;
     #ifdef SWITCH_MODE
       sprintf(tmpMsg, "%s", ((inst[i].tState) ? "ON" : "OFF"));
-    #else
+    #endif
+    #ifdef DIMMER_MODE
       sprintf(tmpMsg, "{\"state\":\"%s\",\"brightness\":%d,\"power\":%d,\"indicator\":\"%s\"}", ((inst[i].tState) ? "ON" : "OFF"), inst[i].tBright, inst[i].tPower, ((inst[i].iStatus) ? "ON" : "OFF"));
     #endif
     mqttPublish(1, i, tmpMsg, true);
@@ -2736,7 +2745,8 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
   if (payload[0] != '{') {
     #ifdef SWITCH_MODE
       jsonize = true;
-    #else
+    #endif
+    #ifdef DIMMER_MODE
       #ifdef DEBUG_MODE
         writeDebug("Ignore non JSON message", 4);
       #endif
@@ -3125,7 +3135,8 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
           if (snprintf(tmpMsg, sizeof(tmpMsg), "{\"name\":\"%s\",\"uniq_id\":\"%s\",\"stat_t\":\"%s\",\"cmd_t\":\"%s\"}", mqttTopics[i].uname, mqttTopics[i].uid, mqttTopics[i].state, mqttTopics[i].set) >= 0) {
             mqttPublish(1, i, tmpMsg);
           }
-        #else
+        #endif
+        #ifdef DIMMER_MODE
           fDim = dconfig.iDimm[i];
           fTrn = dconfig.iTrns[i];
           if (snprintf(tmpMsg, sizeof(tmpMsg), "{\"name\":\"%s\",\"uniq_id\":\"%s\",\"stat_t\":\"%s\",\"cmd_t\":\"%s\",\"dimmTime\":%d,\"edgeTime\":%d,\"dimmer\":%s,\"transition\":%s,\"tr_on\":%d,\"tr_off\":%d}", mqttTopics[i].uname, mqttTopics[i].uid, mqttTopics[i].state, mqttTopics[i].set, dconfig.dimmTime, dconfig.edgeTime, ((fDim) ? "true" : "false"), ((fTrn) ? "true" : "false"), dconfig.transitionOn, dconfig.transitionOff) >= 0) {
@@ -3152,7 +3163,8 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
         if (strncmp(json["state"], "ON", 2) == 0) stt = 1;
         else if (strncmp(json["state"], "OFF", 3) == 0) stt = 0;
         else if (strncmp(json["state"], "TOGGLE", 6) == 0) stt = 2;
-      #else
+      #endif
+      #ifdef DIMMER_MODE
         if (strcmp(json["state"], "ON") == 0) stt = 1;
         else if (strcmp(json["state"], "OFF") == 0) stt = 0;
         else if (strcmp(json["state"], "TOGGLE") == 0) stt = 2;
@@ -4708,7 +4720,8 @@ void setup () {
   #ifdef DEBUG_MODE
     #ifdef SWITCH_MODE
       writeDebug("Start switch", 3);
-    #else
+    #endif
+    #ifdef DIMMER_MODE
       writeDebug("Start dimmer", 3);
     #endif
   #endif
