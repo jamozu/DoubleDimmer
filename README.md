@@ -31,7 +31,7 @@ This project consists of an AC light dimmer for one or two incandescent light bu
 The Dimmer functionality is achieved using the phase control method, using a TRIAC for each bulb, varying the total power applied. This method works very well with incandescent light bulbs and with LED lamps that have the Dimmable specification.
 
 Features:
-* Lights can be dimmed from 10% to 100% power.
+* Lights can be dimmed from 4% to 100% power.
 * The minimum power is configurable for different types of bulbs and environments.
 *	Supports transitions between brightness levels.
 *	One push button per light bulb to control the ON/OFF state and brightness.
@@ -44,8 +44,10 @@ Features:
 *	Setup Portal over WiFi, to configure WiFi/MQTT parameters.
 *	The Setup Portal is started by a double reset or optionally with multi-click of any of the light buttons.
 *	On Power Up the device resets to the last known state, using MQTT retain or EEPROM.
-*	Optional double and triple click to trigger additional actions.
+*	Optional double and triple clicks to trigger additional actions.
 *	Advanced configuration through MQTT.
+*	Each light can be set to "Switch Mode" in case the Dimmer functionality is not required or supported.
+*	The Dimmer auto detects AC frequency.
 
 For mor details check the documentation at: https://github.com/jamozu/DoubleDimmer/blob/main/RRoble_Double_Dimmer.pdf
 
