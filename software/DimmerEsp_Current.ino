@@ -51,7 +51,7 @@
   - On Power Up the device resets to the last known state, using MQTT retain or EEPROM.
   - Optional double click to trigger additional devices.
   - Advanced configuration through MQTT.
-  - Each light can be set to "Switch Mode" in case the Dimmer functionality is not requiered or 
+  - Each light can be set to "Switch Mode" in case the Dimmer functionality is not required or 
     supported.
   - The sketch can be compiled in Switch Mode. In this mode, no dimmer functions are executed and 
     the operation of the LED indicators changes to reflect which instance is ON. 
@@ -155,6 +155,16 @@
 
   - Some cleanup
   
+  ----------------
+  0.8.07
+
+  - Correct MQTT debug information.
+  - Isolate Debug variables.
+  - Improve WiFi reconnect retry.
+  - Smooth variable frequency.
+  - Fixed issue with flickering when 2 lights are turned on.
+
+  
   ------------------------------------------------------------------------------------------------
   Todo
   ------------------------------------------------------------------------------------------------
@@ -169,8 +179,8 @@
   ------------------------------------------------------------------------------------------------
   ------------------------------------------------------------------------------------------------
   @author Jesus Amozurrutia Elizalde <jamozu@gmail.com>
-  @version 0.8.06
-  @date 2023/01/25
+  @version 0.8.07
+  @date 2023/06/20
   @since Friday February 01 2019, 10:32:00
   @copyright MIT license
   @pre Device: ESP-12E (ESP8266)
@@ -191,7 +201,7 @@
 #define HVERSION_NUM                      2
 
 // Software version
-#define SVERSION                          "0.8.06"
+#define SVERSION                          "0.8.07"
 
 // Title for the application
 #define DEVICE_TITLE                      "RRoble Dimmer Switch"
@@ -212,7 +222,7 @@
 // Enable double/triple click events
 #define DBL_CLICK
 
-// Enable multiple clicks to trigger the Setup Portal
+// Enable multiple clicks to start the Setup Portal
 #define MULT_CLICK
 
 // Enable MQTT discovery (compatible with HomeAssistant)
@@ -236,10 +246,11 @@
 // Allow clearing saved status via MQTT message
 #define CLEAR_STATS
 
-// Set switch mode. In this mode, the ZCP is not used.
+// Set switch mode. In this mode instances just switch ON/OFF and the ZCP/transitions are not 
+// used.
 //#define SWITCH_MODE
 
-// Enable high impedance mode to turn of switch (some Relay modules require this)
+// Enable high impedance mode to turn of switch (some Relay modules require this.)
 //#define HIGH_IMPEDANCE
 
 
@@ -293,7 +304,7 @@
    Network
    -------------------------------------------------------------------------------------------- */
 // WiFi re-connect timer (ms)
-#define WIFI_RECONNECT                    8900
+#define WIFI_RECONNECT                    4034
 
 // Reboot after N consecutive WiFi connect attemps
 #define WIFI_CONNECT_REBOOT               10
@@ -302,7 +313,7 @@
 #define WIFI_RESTART_REBOOT               3
 
 // Network re-connect timer (ms)
-#define NET_RECONNECT                     2200
+#define NET_RECONNECT                     2504
 
 // MQTT subscription QOS [0, 1]
 #define MQTT_SUB_QOS                      1
@@ -379,7 +390,7 @@
 #define CONFIG_TRANSITION_ON 0            // "transitionOn" configuration parameter default
 #define CONFIG_TRANSITION_OFF 0           // "transitionOff" configuration parameter default
 #define CONFIG_MIN_POW 4                  // "minPow" configuration parameter default
-#define CONFIG_MIN_TU_BRG 0               // "iMinTUB" configuration parameter default
+#define CONFIG_MIN_TU_BRG 12              // "iMinTUB" configuration parameter default
 #define CONFIG_BRIGHTNESS 100             // "brightness" configuration parameter default
 
 
@@ -422,7 +433,7 @@
     Debug
    -------------------------------------------------------------------------------------------- */
 // Enable debug messages to serial port
-//#define DEBUG_MODE
+#define DEBUG_MODE
 
 // Serial port speed
 #define SERIAL_SPEED                      74880
@@ -595,54 +606,34 @@
 
 
 /* -------------------------------------------------------------------------------------------- 
-   Dimmer AC Signal detection
+   Dimmer AC signal and frequency detection
    -------------------------------------------------------------------------------------------- */
 // Segments in each half AC cycle
 #define SEGMENTS                          119
+// Segments at the end of the cycle where the Triacs are off.
+#define SEGMENTS_OFF                      15
 // Zero Cross Debounce time (uS)
 #define ZC_DEBOUNCE                       4165
-// Number of tics in a half AC cycle @60Hz
-#define TIC_60_CYCLE                      41666
-// Number of tics in a half AC cycle @63.3Hz
-#define TIC_63_CYCLE                      39473
-// Number of tics for the last portion of the 60Hz half cycle where the TRIAC signal should be off
-#define TIC_60_OFF                        5250 //3850
-// Number of tics for the last portion of the 63.3Hz half cycle where the TRIAC signal should be off
-#define TIC_63_OFF                        4980  //3652
-// Ticks per segment @60Hz (TIC_60_CYCLE / SEGMENTS)
-#define TIC_60_SEGM                       350
-// Ticks per segment @63.3Hz (TIC_63_CYCLE / SEGMENTS)
-#define TIC_63_SEGM                       332
-// Number of tics in a half AC cycle @50Hz
-#define TIC_50_CYCLE                      50000
-// Number of tics in a half AC cycle @52.3Hz
-#define TIC_52_CYCLE                      47826
-// Number of tics for the last portion of the 50Hz half cycle where the TRIAC signal should be off
-#define TIC_50_OFF                        6300  //4620
-// Number of tics for the last portion of the 52.3Hz half cycle where the TRIAC signal should be off
-#define TIC_52_OFF                        6030  //4422
-// Ticks per segment @50Hz (TIC_50_CYCLE / SEGMENTS)
-#define TIC_50_SEGM                       420
-// Ticks per segment @52.3Hz (TIC_52_CYCLE / SEGMENTS)
-#define TIC_52_SEGM                       402
+// Time between ZCP in a 60Hz signal
+#define TIME_60_CYCLE                     8333    // Will translate to 41666 tics
+// Time between ZCP in a 50Hz signal
+#define TIME_50_CYCLE                     10000   // Will translate to 50000 tics
 // Min. time to detect a 60 Hz signal (66.6Hz)
-#define TIM_60_LOW                        7500
+#define TIME_60_LOW                       7500
 // Max. time to detect a 60 Hz signal (54.5Hz)
-#define TIM_60_HIGH                       9167
-// Time of cutoff frequency for a 60 Hz signal (63.3Hz)
-#define TIM_60_MID                        7895
+#define TIME_60_HIGH                      9167
 // Min. time to detect a 50 Hz signal (54.6Hz)
-#define TIM_50_LOW                        9167
+#define TIME_50_LOW                       9167
 // Max. time to detect a 50 Hz signal (45.5Hz)
-#define TIM_50_HIGH                       11000
-// Time of cutoff frequency for a 50 Hz signal (52.3Hz)
-#define TIM_50_MID                        9565
+#define TIME_50_HIGH                      11000
+// MicroSeconds to Tic multiplier
+#define US_TO_TIC                         5
 // Number of events to detect frequency and Zero Cross pulse
 #define SETUP_EVENTS                      120
 
 
 /* --------------------------------------------------------------------------------------------
-   Compilation messages
+   Compilation time messages
    -------------------------------------------------------------------------------------------- */
 #if defined(SWITCH_MODE) && defined(DIMMER_MODE)
   #error "Conflicting Switch and Dimmer modes"
@@ -866,6 +857,11 @@ unsigned long aliveCounter = 0;
 // Temp variables to create messages and compound strings
 char tmpMsg0[101];
 char tmpMsg[341];
+#ifdef DEBUG_MODE
+  // Temp variables to create messages and compound strings in debug mode
+  char tmpMsgD[101];
+  char tmpMsgE[341];
+#endif
 // Flag that controls when we go live. 
 //  0 = Go Live cycle off. 1 = Go Live; 2 = Go Live with retain messages;
 int goLive = 2;
@@ -901,6 +897,10 @@ bool wifiSetup = false;
 bool wifiStatus = false;
 // WiFi re-connect/timeout timer
 unsigned long wifiTimer = 0;
+// WiFi re-connect/timeout interval
+unsigned long wifiInterval = WIFI_RECONNECT;
+// WiFi re-connect/timeout interval control
+int wifiIntervalCtrl = 0;
 // Count consecutive connection attemps
 uint16_t wifiConnCtr = 0;
 // WiFi restart counter (counts the number of times WiFi is forced to reset between successfull 
@@ -952,11 +952,9 @@ int edgeSpeed = 10;
      AC Frequency detection
      -------------------------------------------------------------------------------------------- */
   // Flag indicating the dimmer is in setup mode
-  boolean inSetup = true;
+  bool inSetup = true;
   // AC Frequency
   uint8_t freq = 0;
-  // Freq in offset range
-  boolean freqOff = false;
   // AC Frequency calculator counter (invalid)
   int freqCntr0 = 0;
   // AC Frequency calculator counter (50Hz)
@@ -964,9 +962,11 @@ int edgeSpeed = 10;
   // AC Frequency calculator counter (60Hz)
   int freqCntr60 = 0;
   // Ticks per duty cycle segment (SEGMENTS divisions per half cycle)
-  int ticFreq = TIC_60_SEGM;
-  // Freq. timer cutoff
-  unsigned long timFreq = TIM_60_MID;
+  int ticFreq;
+  // Freq. timer lower limit
+  unsigned long timFreqLL = TIME_60_LOW;
+  // Freq. timer upper limit
+  unsigned long timFreqUL = TIME_60_HIGH;
   // Timer to get the duration of the Zero Crossing (ZC) pulse
   unsigned long pulseT = 0;
   // Timer to get the duration of the Zero Crossing (ZC) pulse, auxiliar for prev. step.
@@ -974,11 +974,11 @@ int edgeSpeed = 10;
   // Mid point of the ZC pulse in Tics
   unsigned long ticPulse = 0;
   // ZC pulse sequencer. A Falling edge pulse must follow a rising edge pulse
-  boolean pulseSeq = false;
+  bool pulseSeq = false;
   // Number of tics in a half AC cycle
-  unsigned long ticCycle = TIC_60_CYCLE;
+  unsigned long ticCycle;
   // Number of tics for the last portion of the half cycle where the TRIAC signal should be off
-  unsigned long ticOff = TIC_60_OFF;
+  unsigned long ticOff;
   // Counter of events off range
   int pulseCnt0 = 0;
   // Pulse detection structure
@@ -994,12 +994,18 @@ int edgeSpeed = 10;
   /* -------------------------------------------------------------------------------------------- 
      Dimmer operation and control
      -------------------------------------------------------------------------------------------- */
+  // Trigger segment; Indicate the cycle segment to trigger a TRIAC
+  int tms[INSTANCE_NUM];
+  /// Trigger 3 in segments. Number of segments to turn off triacs
+  int tmsOff;
   // Trigger Timers; Trigger TRIACs
   unsigned long tmr[INSTANCE_NUM];
   // Trigger Timer 3; Turn off triacs
   unsigned long tmrOff = 0;
   // Trigger Timer 4; Overflow Timer till next cycle
   unsigned long tmrOvf = 0;
+  // Timer to calculate duration of the AC cycle
+  unsigned long tmrCycleLast = 0;
   // Trigger indicator (Indicates how many TRIACs will be triggered)
   int trigger = 0;
   // Trigger flag for each step
@@ -1073,8 +1079,6 @@ boolean LedBrgt = true;
   bool statAcConf = false;
   // AC config saved
   bool statAcSave = false;
-  // Count number of times freq is offset
-  uint16_t statFreqOff = 0;
   // Loop counter
   uint16_t statLoopCnt = 0;
   // Loop count per second
@@ -1175,13 +1179,13 @@ void IRAM_ATTR zeroCrossSetup () {
     pulseT = pulseT0;
     if (freq == 0) {
       // Define Freq.
-      if (cycleP > TIM_50_LOW) {
-        if (cycleP < TIM_50_HIGH) {
+      if (cycleP > TIME_50_LOW) {
+        if (cycleP < TIME_50_HIGH) {
           ++freqCntr50;
         } else {
           ++freqCntr0;
         }
-      } else if(cycleP > TIM_60_LOW) {
+      } else if(cycleP > TIME_60_LOW) {
         ++freqCntr60;
       } else {
         ++freqCntr0;
@@ -1201,8 +1205,8 @@ void IRAM_ATTR zeroCrossSetup () {
         freqCntr60 = 0;
         freqCntr0 = 0;
         #ifdef DEBUG_MODE
-          sprintf(tmpMsg0, "Bad frequency time = %ld", cycleP);
-          writeDebug(tmpMsg0, 3);
+          sprintf(tmpMsgD, "Bad frequency time = %ld", cycleP);
+          writeDebug(tmpMsgD, 3);
         #endif
       }
     }
@@ -1273,18 +1277,18 @@ void IRAM_ATTR zeroCrossSetup () {
       pDetect[i].pulseCnt = 0;
     }
     #ifdef DEBUG_MODE
-      sprintf(tmpMsg0, "Out of range ZC pulse = %ld ", zcW);
-      writeDebug(tmpMsg0, 3);
+      sprintf(tmpMsgD, "Out of range ZC pulse = %ld ", zcW);
+      writeDebug(tmpMsgD, 3);
     #endif
   } else {
     // Check if enough pulses have been detected
     for (i = 0; i < 5; i++) {
       if (pDetect[i].pulseCnt < SETUP_EVENTS) continue;
       // Convert to Tics
-      ticPulse = (zcW / 2) * 5 + 175;
+      ticPulse = (zcW / 2) * US_TO_TIC + 175;
       #ifdef DEBUG_MODE
-        sprintf(tmpMsg0, "ZC pulse width detected = %ld ", zcW);
-        writeDebug(tmpMsg0, 3);
+        sprintf(tmpMsgD, "ZC pulse width detected = %ld ", zcW);
+        writeDebug(tmpMsgD, 3);
       #endif
       break;
     }
@@ -1300,54 +1304,33 @@ void IRAM_ATTR zeroCrossSetup () {
 void setFreq (int freqVal) {
   if (freqVal == 50) {
     freq = 50;
-    timFreq = TIM_50_MID;
+    timFreqLL = TIME_50_LOW;
+    timFreqUL = TIME_50_HIGH;
+    setFreqTimers(TIME_50_CYCLE);
     #ifdef DEBUG_MODE
       writeDebug("AC frequency = 50 Hz", 3);
     #endif
-  } else if (freqVal == 60) {
-    freq = 60;
-    timFreq = TIM_60_MID;
-    #ifdef DEBUG_MODE
-      writeDebug("AC frequency = 60 Hz", 3);
-    #endif
-  }
-  freqOff = true;
-  setFreqVar();
-}
-
-/** **********************************************************************************************
-  Set the frequency variables
-*********************************************************************************************** */
-void setFreqVar () {
-  freqOff = false;
-  if (freq == 50) {
-    ticFreq = TIC_50_SEGM;
-    ticCycle = TIC_50_CYCLE;
-    ticOff = TIC_50_OFF;
     return;
   }
-  ticFreq = TIC_60_SEGM;
-  ticCycle = TIC_60_CYCLE;
-  ticOff = TIC_60_OFF;
-}
-
-/** **********************************************************************************************
-  Offset the frequency
-*********************************************************************************************** */
-void offsetFreqVar () {
-  freqOff = true;
-  #ifdef COLLECT_STATS
-    ++statFreqOff;
+  freq = 60;
+  timFreqLL = TIME_60_LOW;
+  timFreqUL = TIME_60_HIGH;
+  setFreqTimers(TIME_60_CYCLE);
+  #ifdef DEBUG_MODE
+    writeDebug("AC frequency = 60 Hz", 3);
   #endif
-  if (freq == 50) {
-    ticFreq = TIC_52_SEGM;
-    ticCycle = TIC_52_CYCLE;
-    ticOff = TIC_52_OFF;
-    return;
-  }
-  ticFreq = TIC_63_SEGM;
-  ticCycle = TIC_63_CYCLE;
-  ticOff = TIC_63_OFF;
+}
+
+/** **********************************************************************************************
+  Set frequency timer variables (in tics)
+
+  @param zcInterval Interval in us between ZC pulses
+*********************************************************************************************** */
+void setFreqTimers (unsigned long zcInterval) {
+  tmrCycleLast = zcInterval;
+  ticCycle = zcInterval * US_TO_TIC;
+  ticFreq = ticCycle / SEGMENTS;
+  ticOff = ticFreq * SEGMENTS_OFF;
 }
 
 /** **********************************************************************************************
@@ -1362,51 +1345,48 @@ void IRAM_ATTR zeroCross () {
   // Debounce
   ////////////////////////////////////////////////////////////////////////////////
   unsigned long tNow = micros();
-  if ((unsigned long)(tNow - zcLast) < ZC_DEBOUNCE) return;
+  unsigned long tmCy = (unsigned long)(tNow - zcLast);
+  if (tmCy < ZC_DEBOUNCE) return;
   ////////////////////////////////////////////////////////////////////////////////
   // Setup detection
   ////////////////////////////////////////////////////////////////////////////////
-  // Loop variables
-  bool chg = false;
-  bool cht = false;
-  bool chf = false;
+  // Cycle variables
+  bool chv = false;                       // Instance value changed
+  bool chg = false;                       // Values changed
+  bool chx = false;                       // Timers changed
   int i;
   int bt = 1;
-  unsigned long ttm[INSTANCE_NUM];
+  int ttm[INSTANCE_NUM];
   int tt[INSTANCE_NUM];
   ////////////////////////////////////////////////////////////////////////////////
-  // Check fequency
+  // Check AC fequency and set timers
   ////////////////////////////////////////////////////////////////////////////////
-  if ((unsigned long)(tNow - zcLast) < timFreq) {
-    if (!freqOff) {
-      offsetFreqVar();
-      chf = true;
-    }
-  } else if (freqOff) {
-    setFreqVar();
-    chf = true;
+  if (tmCy != tmrCycleLast && tmCy >= timFreqLL && tmCy <= timFreqUL) {
+    setFreqTimers(tmCy);
+    chx = true;
   }
-  ////////////////////////////////////////////////////////////////////////////////
-  // Calculate TRIAC triggers
-  ////////////////////////////////////////////////////////////////////////////////
+  // Save pulse timer to calculate next cycle
   zcLast = tNow;
   // Reset the missed ZC pulse counter
   zcSkip = 0;
   ////////////////////////////////////////////////////////////////////////////////
-  // Calc Triac
+  // Calculate instance values
   ////////////////////////////////////////////////////////////////////////////////
   for (i = 0; i < INSTANCE_NUM; i++) {
-    cht = false;
+    chv = false;
     // For transition 0, jump to the target brightness
     if (inst[i].tTransition == 0) {
+      // Turn on
       if (inst[i].tState) {
         if (inst[i].tValue != inst[i].tBright || inst[i].tPower == 0) {
           inst[i].tValue = inst[i].tBright;
-          cht = true;
+          chv = true;
         }
-      } else if (inst[i].tValue != 0 || inst[i].tPower != 0) {
+      } else
+      // Turn off
+      if (inst[i].tValue != 0 || inst[i].tPower != 0) {
         inst[i].tValue = 0;
-        cht = true;
+        chv = true;
       }
     }
     // The current value is higher than the target brightness or the light is off
@@ -1417,11 +1397,13 @@ void IRAM_ATTR zeroCross () {
         if (inst[i].tCntr <= 0) {
           inst[i].tCntr = inst[i].tTransition;
           --inst[i].tValue;
-          cht = true;
+          chv = true;
         }
-      } else if (inst[i].tPower != 0) {
+      } else 
+      // Turn off
+      if (inst[i].tPower != 0) {
         inst[i].tPower = 0;
-        cht = true;
+        chv = true;
       }
     }
     // The current value is lower than the target power
@@ -1431,39 +1413,45 @@ void IRAM_ATTR zeroCross () {
       if (inst[i].tCntr <= 0) {
         inst[i].tCntr = inst[i].tTransition;
         ++inst[i].tValue;
-        cht = true;
+        chv = true;
       }
     }
-    // The power is 0, but light is not OFF. Force a recalculation of power
+    // The power is 0, but light is NOT OFF. Force a recalculation of power
     else if (inst[i].tPower == 0) {
-      cht = true;
+      chv = true;
     }
-    // The instance changed...
-    if (cht || chf) {
+    // The instance value changed...
+    if (chv) {
+      // Light is off and value is 0, set power to 0 and segments to Max.
       if (!inst[i].tState && inst[i].tValue == 0) {
         inst[i].tPower = 0;
-        inst[i].tTmr = SEGMENTS * ticFreq + ticPulse;
-      } else {
+        inst[i].tTmr = SEGMENTS;
+      }
+      // Otherwise, calculate power and trigger segment
+      else {
         inst[i].tPower = getPower(inst[i].tValue, i);
-        inst[i].tTmr = powerToSegment(inst[i].tPower) * ticFreq + ticPulse;
+        inst[i].tTmr = powerToSegment(inst[i].tPower);
       }
       ///// Review
       chg = true;
     }
-    // Calculate timers
-    ttm[i] = inst[i].tTmr;
+    // Set trigger for instances that are turned On
     if (inst[i].tPower >= dconfig.iMinPow[i]) {
       tt[i] = bt;
     } else {
       tt[i] = 0;
     }
+    ttm[i] = inst[i].tTmr;
     bt <<= 1;
   }
+  ////////////////////////////////////////////////////////////////////////////////
+  // Values changed, recalculate segment triggers
+  ////////////////////////////////////////////////////////////////////////////////
   if (chg) {
     ////////////////////////////////////////////////////////////////////////////////
     // Sort
-    ////////////////////////////////////////////////////////////////////////////////
-    unsigned long m;
+    int ltm = 0;
+    int m;
     int n;
     int j;
     for (i = 1; i < INSTANCE_NUM; i++) {
@@ -1478,34 +1466,44 @@ void IRAM_ATTR zeroCross () {
     }
     ////////////////////////////////////////////////////////////////////////////////
     // Calc duplicates
-    ////////////////////////////////////////////////////////////////////////////////
     for (int i = (INSTANCE_NUM - 1); i > 0; i--) {
       if (ttm[i] != ttm[i - 1]) continue;
       tt[i] |= tt[i - 1];
       tt[i - 1] = 0;
     }
     ////////////////////////////////////////////////////////////////////////////////
-    // Calc timers
-    ////////////////////////////////////////////////////////////////////////////////
-    unsigned long ltm = 0;
+    // Set trigger sequence
+    ltm = 0;
     trigger = 0;
     for (i = 0; i < INSTANCE_NUM; i++) {
-      if (tt[i] > 0) {
-        tmr[trigger] = ttm[i] - ltm;
-        trig[trigger] = tt[i];
-        ltm = ttm[i];
-        ++trigger;
-      }
+      if (tt[i] == 0) continue;
+      trig[trigger] = tt[i];
+      tms[trigger] = ttm[i] - ltm;
+      ltm = ttm[i];
+      ++trigger;
     }
+    // Unset triggers and sequence timers for instances that are Off 
     for (i = trigger; i < INSTANCE_NUM; i++) {
       trig[i] = 0;
+      tms[i] = 0;
     }
-    if (trigger > 0) {
-      tmrOff = ticCycle - ltm - ticOff;
+    if (trigger == 0) {
+      tms[0] = 1;
+      tmsOff = SEGMENTS - SEGMENTS_OFF - 1;
     } else {
-      tmr[0] = ticPulse + ticFreq;
-      tmrOff = ticCycle - tmr[0] - ticOff;
+      tmsOff = SEGMENTS - SEGMENTS_OFF - ltm;
     }
+    chx = true;
+  }
+  ////////////////////////////////////////////////////////////////////////////////
+  // Calc timers
+  ////////////////////////////////////////////////////////////////////////////////
+  if (chx) {
+    for (i = 0; i < INSTANCE_NUM; i++) {
+      tmr[i] = tms[i] * ticFreq;
+    }
+    tmr[0] += ticPulse;
+    tmrOff = tmsOff * ticFreq;
     tmrOvf = ticOff + tmr[0];
   }
   ////////////////////////////////////////////////////////////////////////////////
@@ -1822,12 +1820,13 @@ int powerToSegment (int v) {
 /** **********************************************************************************************
    Get the Power %, from the brightness level
    
-   @param bright Brightness level (0-100).
+   @param bright Brightness level (1-100).
    @param idx Light index [0|1].
 *********************************************************************************************** */
 uint8_t getPower (uint8_t bright, int idx) {
   float sg = dconfig.iMinPow[idx];
-  uint8_t res = bright * (100 - sg) / 100 + sg;
+  if (bright == 0) bright = 1;
+  uint8_t res = (bright - 1) * (100 - sg) / 99 + sg;
   return res;
 }
 #endif
@@ -1943,7 +1942,6 @@ void systemTimer () {
     statLoopPS = statLoopCnt;
     statLoopCnt = 0;
   #endif
-
 }
 
 /** **********************************************************************************************
@@ -1954,8 +1952,8 @@ void setDeviceId () {
   WiFi.macAddress(mac);
   sprintf(deviceId, "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   #ifdef DEBUG_MODE
-    sprintf(tmpMsg0, "Device setup: %s / %s", INST_TYPE, deviceId);
-    writeDebug(tmpMsg0, 1);
+    sprintf(tmpMsgD, "Device setup: %s / %s", INST_TYPE, deviceId);
+    writeDebug(tmpMsgD, 1);
   #endif
 }
 
@@ -2032,7 +2030,7 @@ void handleLed () {
   Start WiFi
 *********************************************************************************************** */
 void wifiBegin () {
-  if(!wifiSetup || (unsigned long)(millis() - wifiTimer) > WIFI_RECONNECT) {
+  if(!wifiSetup || (unsigned long)(millis() - wifiTimer) > wifiInterval) {
     #ifdef OTA_UPDATES
       WiFi.mode(WIFI_STA);
     #endif
@@ -2047,6 +2045,14 @@ void wifiBegin () {
   }
   wifiStatus = false;
   wifiSetup = true;
+  // Increase re-connect interval until it passes a minute
+  if (wifiInterval < 60000) {
+    ++wifiIntervalCtrl;
+    if (wifiIntervalCtrl >= 3) {
+      wifiIntervalCtrl = 0;
+      wifiInterval *= 2;
+    }
+  }
 }
 
 /** **********************************************************************************************
@@ -2086,11 +2092,11 @@ boolean netCheck () {
   if (mqttEventCtr > MQTT_MAX_EVENTS) {
     #ifdef DEBUG_MODE
       #ifdef COLLECT_STATS
-        sprintf(tmpMsg0, "Broker is not responding. Reset network connections. %d / %d", wifiRstCtr, statWifiRstTtl);
+        sprintf(tmpMsgD, "Broker is not responding. Reset network connections. %d / %d", wifiRstCtr, statWifiRstTtl);
       #else
-        sprintf(tmpMsg0, "Broker is not responding. Reset network connections. %d ", wifiRstCtr);
+        sprintf(tmpMsgD, "Broker is not responding. Reset network connections. %d ", wifiRstCtr);
       #endif
-      writeDebug(tmpMsg0, 2);
+      writeDebug(tmpMsgD, 2);
     #endif
     // Disconnect MQTT
     mqttDisconnect();
@@ -2130,8 +2136,11 @@ boolean netCheck () {
     // Force an immediate visit to netConnect()
     netFirst = true;
   }
-  // Reset consecutive connection counter
+  // Reset wifi re-connect counters
   wifiConnCtr = 0;
+  wifiTimer = millis();
+  wifiInterval = WIFI_RECONNECT;
+  wifiIntervalCtrl = 0;
   //////////////////////////////////////////
   // Check MQTT connectivity
   //////////////////////////////////////////
@@ -2170,7 +2179,7 @@ boolean netCheck () {
   }
   // All connections are OK
   wifiRstCtr = 0;
-  // Once WiFi and MQTT connections are detected once, we allow a forced reboot
+  // When WiFi and MQTT connections are detected at least once, we allow a forced reboot
   canReboot = true;
   return true;
 }
@@ -2185,11 +2194,11 @@ void netConnect () {
     if (WiFi.status() != WL_CONNECTED) {
       #ifdef DEBUG_MODE
         #ifdef COLLECT_STATS
-          sprintf(tmpMsg0, "Call WiFi Setup: %d, ERR: %d, RST: %d", WiFi.status(), wifiRstCtr, statWifiRstTtl);
+          sprintf(tmpMsgD, "Call WiFi Setup: %d, ERR: %d, RST: %d", WiFi.status(), wifiRstCtr, statWifiRstTtl);
         #else
-          sprintf(tmpMsg0, "Call WiFi Setup: %d, ERR: %d", WiFi.status(), wifiRstCtr);
+          sprintf(tmpMsgD, "Call WiFi Setup: %d, ERR: %d", WiFi.status(), wifiRstCtr);
         #endif
-        writeDebug(tmpMsg0, 2);
+        writeDebug(tmpMsgD, 2);
       #endif
       wifiBegin();
       // Count the number of simultaneous connection attemps
@@ -2210,8 +2219,8 @@ void netConnect () {
       writeDebug(dconfig.mqttuser, 0, true);
       writeDebug(" @ ", 0, true);
       writeDebug(dconfig.mqttbroker, 0, true);
-      sprintf(tmpMsg0, " :: %d ", mqttEventCtr);
-      writeDebug(tmpMsg0);
+      sprintf(tmpMsgD, " :: %d ", mqttEventCtr);
+      writeDebug(tmpMsgD);
     } else {
       writeDebug("Call broker connection", 4);
     }
@@ -2242,7 +2251,7 @@ void goLiveOff () {
   Define MQTT topics
 *********************************************************************************************** */
 void mqttDefineTopics () {
-  // Device STATUS topic
+  // Device STATE topic
   sprintf(tmpMsg, "%s/%s/%s/state", dconfig.namespc, INST_TYPE, dconfig.myId);
   strlcpy(topicState, tmpMsg, sizeof(topicState));
   // Device SET topic
@@ -2474,8 +2483,8 @@ void mqttDisconnect () {
   MQTT subscribe to topics
 *********************************************************************************************** */
 void mqttSubscribe () {
-  if (!mqttStatus) return;
   reSubscribe = 0;
+  if (!mqttStatus) return;
   unsigned long cTmr = millis();
   #ifdef MQTT_CONFIG
     mqttClient.subscribe(topicSet, MQTT_SUB_QOS);
@@ -2558,8 +2567,8 @@ void mqttPublish (int tIndex, int instance, const char* payload, bool useBuffer)
     #ifdef DEBUG_MODE
       writeDebug("Publish on topic: ", 4, true);
       writeDebug(topic, 0, true);
-      sprintf(tmpMsg0, " :: %d ", mqttEventCtr);
-      writeDebug(tmpMsg0);
+      sprintf(tmpMsgD, " :: %d ", mqttEventCtr);
+      writeDebug(tmpMsgD);
       writeDebug(payload);
     #endif
     useBuffer = false;
@@ -2570,8 +2579,8 @@ void mqttPublish (int tIndex, int instance, const char* payload, bool useBuffer)
   strlcpy(buffMsg[buffStat], payload, sizeof(buffMsg[buffStat]));
   buffRet[buffStat] = ret;
   #ifdef DEBUG_MODE
-    sprintf(tmpMsg0, "Buffer message %d for topic ", buffPub);
-    writeDebug(tmpMsg0, 4, true);
+    sprintf(tmpMsgD, "Buffer message %d for topic ", buffStat);
+    writeDebug(tmpMsgD, 4, true);
     writeDebug(topic);
     writeDebug(payload);
   #endif
@@ -2596,11 +2605,11 @@ void mqttPublishBuffer () {
   mqttTransit(mqttClient.publish(buffTop[buffPub], MQTT_PUB_QOS, buffRet[buffPub], buffMsg[buffPub]));
   ++mqttEventCtr;
   #ifdef DEBUG_MODE
-    sprintf(tmpMsg0, "Publish buffer %d for topic", buffPub);
-    writeDebug(tmpMsg0, 4, true);
+    sprintf(tmpMsgD, "Publish buffer %d for topic", buffPub);
+    writeDebug(tmpMsgD, 4, true);
     writeDebug(buffTop[buffPub], 0, true);
-    sprintf(tmpMsg0, " :: %d ", mqttEventCtr);
-    writeDebug(tmpMsg0);
+    sprintf(tmpMsgD, " :: %d ", mqttEventCtr);
+    writeDebug(tmpMsgD);
     writeDebug(buffMsg[buffPub]);
   #endif
   buffPub++;
@@ -2729,9 +2738,11 @@ void mqttDiscovery () {
   @param total Total message size
 *********************************************************************************************** */
 void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
+  char tmpMsgL[101];
   #ifdef DEBUG_MODE
-    sprintf(tmpMsg, "Incoming MQTT message: : %s, %d, %d, %d \n %s", topic, len, index, total, payload);
-    writeDebug(tmpMsg, 4);
+    char tmpMsgX[341];
+    sprintf(tmpMsgX, "Incoming MQTT message: : %s, %d, %d, %d \n %s", topic, len, index, total, payload);
+    writeDebug(tmpMsgX, 4);
   #endif
   if (len != total) {
     #ifdef DEBUG_MODE
@@ -2758,9 +2769,9 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
     DynamicJsonDocument json(1024);
     #ifdef SWITCH_MODE
       if (jsonize) {
-        strlcpy(tmpMsg0, payload, len + 1);
-        tmpMsg0[len] = 0;
-        json["state"] = tmpMsg0;
+        strlcpy(tmpMsgL, payload, len + 1);
+        tmpMsgL[len] = 0;
+        json["state"] = tmpMsgL;
       } else {
     #endif
       auto error = deserializeJson(json, payload);
@@ -2778,9 +2789,9 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
     DynamicJsonBuffer jsonBuffer;
     #ifdef SWITCH_MODE
       if (jsonize) {
-        strlcpy(tmpMsg0, payload, len + 1);
-        tmpMsg0[len] = 0;
-        json["state"] = tmpMsg0;
+        strlcpy(tmpMsgL, payload, len + 1);
+        tmpMsgL[len] = 0;
+        json["state"] = tmpMsgL;
       } else {
     #endif
       JsonObject& json = jsonBuffer.parseObject(payload);
@@ -2834,7 +2845,7 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
       #endif
       mqttPublish(0, 0, tmpMsg, true);
       #ifdef COLLECT_STATS
-        sprintf(tmpMsg, "  AC=%d; Sv=%d; Loop=%d; Btns=%d (%d); Off=%d; Ovf=%d; NoNet=%d; WiFiRst=%d;  WiFiFail=%d; WiFiReconn=%d", statAcConf, statAcSave, statLoopPS, statBtnCnt, statBtnDet, statFreqOff, statTmrOvf, statNoNet, statWifiRstTtl, wifiRstCtr, wifiConnCtr);
+        sprintf(tmpMsg, "  AC=%d; Sv=%d; Loop=%d; Btns=%d (%d); Ovf=%d; NoNet=%d; WiFiRst=%d;  WiFiFail=%d; WiFiReconn=%d", statAcConf, statAcSave, statLoopPS, statBtnCnt, statBtnDet, statTmrOvf, statNoNet, statWifiRstTtl, wifiRstCtr, wifiConnCtr);
         mqttPublish(0, 0, tmpMsg, true);
         if (json.containsKey("verbose")) {
           for (int i = 0; i < STATS_NUM; i++) {
@@ -2997,53 +3008,53 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
         int lgt;
         for (int i = 0; i < INSTANCE_NUM; i++) {
           lgt = i + 1;
-          sprintf(tmpMsg0, "name%d", lgt);
-          if (json.containsKey(tmpMsg0) && json[tmpMsg0].is<char*>()) {
-            strlcpy(dconfig.iName[i], json[tmpMsg0], sizeof(dconfig.iName[i]));
+          sprintf(tmpMsgL, "name%d", lgt);
+          if (json.containsKey(tmpMsgL) && json[tmpMsgL].is<char*>()) {
+            strlcpy(dconfig.iName[i], json[tmpMsgL], sizeof(dconfig.iName[i]));
             configChanged = true;
             #ifdef MQTT_DISCOVERY
               mqttReDiscover();
             #endif
           }
           #ifdef DIMMER_MODE
-            sprintf(tmpMsg0, "LgtDimm%d", lgt);
-            if (json.containsKey(tmpMsg0) && json[tmpMsg0].is<bool>()) {
-              dconfig.iDimm[i] = json[tmpMsg0];
+            sprintf(tmpMsgL, "LgtDimm%d", lgt);
+            if (json.containsKey(tmpMsgL) && json[tmpMsgL].is<bool>()) {
+              dconfig.iDimm[i] = json[tmpMsgL];
               configChanged = true;
             }
-            sprintf(tmpMsg0, "LgtTrns%d", lgt);
-            if (json.containsKey(tmpMsg0) && json[tmpMsg0].is<bool>()) {
-              dconfig.iTrns[i] = json[tmpMsg0];
+            sprintf(tmpMsgL, "LgtTrns%d", lgt);
+            if (json.containsKey(tmpMsgL) && json[tmpMsgL].is<bool>()) {
+              dconfig.iTrns[i] = json[tmpMsgL];
               configChanged = true;
             }
-            sprintf(tmpMsg0, "minPow%d", lgt);
-            if (json.containsKey(tmpMsg0) && (json[tmpMsg0].is<signed int>() || json[tmpMsg0].is<unsigned int>())) {
-              if (json[tmpMsg0] > MAX_MIN_POW) {
-                 json[tmpMsg0] = MAX_MIN_POW;
-              } else if (json[tmpMsg0] < MIN_POW) {
-                 json[tmpMsg0] = MIN_POW;
+            sprintf(tmpMsgL, "minPow%d", lgt);
+            if (json.containsKey(tmpMsgL) && (json[tmpMsgL].is<signed int>() || json[tmpMsgL].is<unsigned int>())) {
+              if (json[tmpMsgL] > MAX_MIN_POW) {
+                 json[tmpMsgL] = MAX_MIN_POW;
+              } else if (json[tmpMsgL] < MIN_POW) {
+                 json[tmpMsgL] = MIN_POW;
               }
-              dconfig.iMinPow[i] = (int8_t)json[tmpMsg0];
+              dconfig.iMinPow[i] = (int8_t)json[tmpMsgL];
               configChanged = true;
             }
-            sprintf(tmpMsg0, "minTUB%d", lgt);
-            if (json.containsKey(tmpMsg0) && (json[tmpMsg0].is<signed int>() || json[tmpMsg0].is<unsigned int>())) {
-              if (json[tmpMsg0] > MAX_MIN_POW) {
-                 json[tmpMsg0] = MAX_MIN_POW;
-              } else if (json[tmpMsg0] < 0) {
-                 json[tmpMsg0] = 0;
+            sprintf(tmpMsgL, "minTUB%d", lgt);
+            if (json.containsKey(tmpMsgL) && (json[tmpMsgL].is<signed int>() || json[tmpMsgL].is<unsigned int>())) {
+              if (json[tmpMsgL] > MAX_MIN_POW) {
+                 json[tmpMsgL] = MAX_MIN_POW;
+              } else if (json[tmpMsgL] < 0) {
+                 json[tmpMsgL] = 0;
               }
-              dconfig.iMinTUB[i] = json[tmpMsg0];
+              dconfig.iMinTUB[i] = json[tmpMsgL];
               configChanged = true;
             }                                
-            sprintf(tmpMsg0, "brightness%d", lgt);
-            if (json.containsKey(tmpMsg0) && (json[tmpMsg0].is<signed int>() || json[tmpMsg0].is<unsigned int>())) {
-              if (json[tmpMsg0] > 100) {
-                 json[tmpMsg0] = 100;
-              } else if (json[tmpMsg0] < 1) {
-                 json[tmpMsg0] = 1;
+            sprintf(tmpMsgL, "brightness%d", lgt);
+            if (json.containsKey(tmpMsgL) && (json[tmpMsgL].is<signed int>() || json[tmpMsgL].is<unsigned int>())) {
+              if (json[tmpMsgL] > 100) {
+                 json[tmpMsgL] = 100;
+              } else if (json[tmpMsgL] < 1) {
+                 json[tmpMsgL] = 1;
               }
-              dconfig.iBrightness[i] = (int8_t)json[tmpMsg0];
+              dconfig.iBrightness[i] = (int8_t)json[tmpMsgL];
               configChanged = true;
             }
           #endif
@@ -3159,7 +3170,7 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
     #endif
     if (json.containsKey("state") && json["state"].is<char*>()) {
       #ifdef SWITCH_MODE
-        strlcpy(tmpMsg0, json["state"], len + 1);
+        strlcpy(tmpMsgL, json["state"], len + 1);
         if (strncmp(json["state"], "ON", 2) == 0) stt = 1;
         else if (strncmp(json["state"], "OFF", 3) == 0) stt = 0;
         else if (strncmp(json["state"], "TOGGLE", 6) == 0) stt = 2;
@@ -3168,7 +3179,7 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
         if (strcmp(json["state"], "ON") == 0) stt = 1;
         else if (strcmp(json["state"], "OFF") == 0) stt = 0;
         else if (strcmp(json["state"], "TOGGLE") == 0) stt = 2;
-      #endif      
+      #endif
       fPub = true;
     }
     if (json.containsKey("indicator") && json["indicator"].is<char*>()) {
@@ -3178,8 +3189,8 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
       if (json.containsKey("brightness") && (json["brightness"].is<signed int>() || json["brightness"].is<unsigned int>())) {
         if (json["brightness"] > 100) {
           json["brightness"] = 100;
-        } else if (json["brightness"] <= 0) {
-          json["brightness"] = 0;
+        } else if (json["brightness"] <= 1) {
+          json["brightness"] = 1;
         }
         brght = json["brightness"];
         fPub = true;
@@ -3281,8 +3292,8 @@ void setInstanceState (int i, int state, bool pub, bool remote) {
   #ifdef DEBUG_MODE
     if (state == 3) return;
     // Show new status
-    sprintf(tmpMsg0, "Instance %d turned %s %s", (i + 1), ((inst[i].tState) ? "ON" : "OFF"), ((remote) ? "remotely" : ""));
-    writeDebug(tmpMsg0, 3);
+    sprintf(tmpMsgD, "Instance %d turned %s %s", (i + 1), ((inst[i].tState) ? "ON" : "OFF"), ((remote) ? "remotely" : ""));
+    writeDebug(tmpMsgD, 3);
   #endif
 }
 #endif
@@ -3297,13 +3308,14 @@ void setInstanceState (int i, int state, bool pub, bool remote) {
     - 1 = ON 
     - 2 = Toggle
     - 3 = no action
-  @param brightness Brightness [0 - 100]; -1 = No change; -2 = Next dimm value 
+  @param brightness Brightness [1 - 100]; -1 = No change; -2 = Next dimm value 
   @param transition Transition speed [0 - 10]
   @param pub Publish / Save new status
   @param remote Values set remotely
 *********************************************************************************************** */
 void setInstanceState (int i, int state, int8_t brightness, int8_t transition, bool pub, bool remote) {
   bool newState = false;
+  bool initVal = false;
   // Set new state
   if (state == 0) {
     newState = false;
@@ -3330,8 +3342,9 @@ void setInstanceState (int i, int state, int8_t brightness, int8_t transition, b
         inst[i].tBright = brightness;
         inst[i].eCntr = 0;
         if (newState && !inst[i].tState && dconfig.iMinTUB[i] > 0) {
-          if (inst[i].tTransition < 2) inst[i].tTransition = 2;
+          if (inst[i].tTransition < 5) inst[i].tTransition = 5;
           inst[i].tValue = dconfig.iMinTUB[i];
+          initVal = true;
         }
       } else if (brightness == -2) {
         if (!inst[i].tState) {
@@ -3350,8 +3363,8 @@ void setInstanceState (int i, int state, int8_t brightness, int8_t transition, b
             inst[i].tBright = 100;
             inst[i].tDirection = false;
             inst[i].eCntr = edgeSpeed;
-          } else if(inst[i].tBright < 0) {
-            inst[i].tBright = 0;
+          } else if(inst[i].tBright < 1) {
+            inst[i].tBright = 1;
             inst[i].tDirection = true;
             inst[i].eCntr = edgeSpeed;
           }
@@ -3361,11 +3374,17 @@ void setInstanceState (int i, int state, int8_t brightness, int8_t transition, b
         if (newState && !inst[i].tState && dconfig.iMinTUB[i] > 0) {
           if (inst[i].tTransition < 2) inst[i].tTransition = 2;
           inst[i].tValue = dconfig.iMinTUB[i];
+          initVal = true;
         }
       }
       #ifdef DEBUG_MODE
-        sprintf(tmpMsg0, "Instance %d brightness = %d%s", (i + 1), inst[i].tBright, ((remote) ? ", set remotely" : " "));
-        writeDebug(tmpMsg0, 3);
+        if (initVal) {
+          sprintf(tmpMsgD, "Instance %d brightness = %d with initial value %d%s", (i + 1), inst[i].tBright, inst[i].tValue, ((remote) ? ", set remotely" : " "));
+          writeDebug(tmpMsgD, 3);
+        } else {
+          sprintf(tmpMsgD, "Instance %d brightness = %d%s", (i + 1), inst[i].tBright, ((remote) ? ", set remotely" : " "));
+          writeDebug(tmpMsgD, 3);
+        }
       #endif
     } else {
       inst[i].tTransition = 0;
@@ -3387,8 +3406,8 @@ void setInstanceState (int i, int state, int8_t brightness, int8_t transition, b
   #ifdef DEBUG_MODE
     if (state == 3) return;
     // Show new status
-    sprintf(tmpMsg0, "Instance %d turned %s %s; T: %d", (i + 1), ((inst[i].tState) ? "ON" : "OFF"), ((remote) ? "remotely" : ""), inst[i].tTransition);
-    writeDebug(tmpMsg0, 3);
+    sprintf(tmpMsgD, "Instance %d turned %s %s; T: %d", (i + 1), ((inst[i].tState) ? "ON" : "OFF"), ((remote) ? "remotely" : ""), inst[i].tTransition);
+    writeDebug(tmpMsgD, 3);
   #endif
 }
 #endif
@@ -3409,8 +3428,8 @@ boolean isEepromInit () {
     return true; 
   }
   #ifdef DEBUG_MODE
-    sprintf(tmpMsg0, "EEPROM is NOT initialized = %ld / %d", vale, addr);
-    writeDebug(tmpMsg0, 1);
+    sprintf(tmpMsgD, "EEPROM is NOT initialized = %ld / %d", vale, addr);
+    writeDebug(tmpMsgD, 1);
   #endif
   return false;
 }
@@ -3425,11 +3444,8 @@ void setEepromInit () {
   addr += EEPROM_writeAnything(addr, vale);
   #ifdef DEBUG_MODE
     if (EEPROM.commit()) {
-      #ifdef DEBUG_MODE
-      sprintf(tmpMsg0, "EEPROM initialized = %ld / %d", vale, addr);
-      writeDebug(tmpMsg0, 1);
-      #endif
-      //writeDebug("EEPROM initialized", 1);
+      sprintf(tmpMsgD, "EEPROM initialized = %ld / %d", vale, addr);
+      writeDebug(tmpMsgD, 1);
     } else {
       writeDebug("Failed initializing EEPROM", 1);
     }
@@ -3614,7 +3630,7 @@ void loadConfig () {
   File configFile = LittleFS.open("/config.json", "r");
   if (!configFile) {
     #ifdef DEBUG_MODE
-    writeDebug("Failed to open configuration file", 1);
+      writeDebug("Failed to open configuration file", 1);
     #endif
     return;
   }
@@ -3835,8 +3851,8 @@ void loadLastStatus () {
   addr += EEPROM_readAnything(addr, statBoot);
   addr += EEPROM_readAnything(addr, statRst);
   #ifdef DEBUG_MODE
-    sprintf(tmpMsg, "System Stats: Boot=%d; Reset=%d", statBoot, statRst);
-    writeDebug(tmpMsg, 1);
+    sprintf(tmpMsgD, "System Stats: Boot=%d; Reset=%d", statBoot, statRst);
+    writeDebug(tmpMsgD, 1);
   #endif
   for (int i = 0; i < STATS_NUM; i++) {
     addr += EEPROM_readAnything(addr, bv);
@@ -3853,8 +3869,8 @@ void loadLastStatus () {
     addr += EEPROM_readAnything(addr, sStats[i].wifiConnCtr);
     addr += EEPROM_readAnything(addr, sStats[i].aliveCounter);
     #ifdef DEBUG_MODE
-      sprintf(tmpMsg, "  (%d) AC=%d; Save=%d; LoopPS=%d; Btns=%d; Ovf=%d; NoNet=%d; WiFiRst=%d;  WiFiFail=%d; WiFiReconn=%d; Alive=%d", i, sStats[i].acConf, sStats[i].acSave, sStats[i].loopPS, sStats[i].btnCnt, sStats[i].tmrOvf, sStats[i].noNet, sStats[i].wifiRstTtl, sStats[i].wifiRstCtr, sStats[i].wifiConnCtr, sStats[i].aliveCounter);
-      writeDebug(tmpMsg, 1);
+      sprintf(tmpMsgE, "  (%d) AC=%d; Save=%d; LoopPS=%d; Btns=%d; Ovf=%d; NoNet=%d; WiFiRst=%d;  WiFiFail=%d; WiFiReconn=%d; Alive=%d", i, sStats[i].acConf, sStats[i].acSave, sStats[i].loopPS, sStats[i].btnCnt, sStats[i].tmrOvf, sStats[i].noNet, sStats[i].wifiRstTtl, sStats[i].wifiRstCtr, sStats[i].wifiConnCtr, sStats[i].aliveCounter);
+      writeDebug(tmpMsgE, 1);
     #endif
   }
   // Increase Boot Count
@@ -3864,8 +3880,8 @@ void loadLastStatus () {
   statBoot += 1;
   // Save Boot Count
   #ifdef DEBUG_MODE
-    sprintf(tmpMsg0, "Save Boot counter: %d", statBoot);
-    writeDebug(tmpMsg0, 1);
+    sprintf(tmpMsgD, "Save Boot counter: %d", statBoot);
+    writeDebug(tmpMsgD, 1);
   #endif
   addr = EADDR_BOOT_INFO;
   EEPROM_writeAnything(addr, statBoot);
@@ -3986,12 +4002,6 @@ template <class T> int EEPROM_writeAnything (int ee, const T& value) {
   const byte* p = (const byte*)(const void*)&value;
   unsigned int i;
   for (i = 0; i < sizeof(value); i++) {
-    /*
-    #ifdef DEBUG_MODE
-      sprintf(tmpMsg, "EEPROM WRITE: %d @ %d", *p, ee);
-      writeDebug(tmpMsg, 1);
-    #endif
-    */
     EEPROM.write(ee++, *p++);
   }
   return i;
@@ -4009,12 +4019,6 @@ template <class T> int EEPROM_readAnything (int ee, T& value) {
   unsigned int i;
   for (i = 0; i < sizeof(value); i++) {
     *p++ = EEPROM.read(ee++);
-    /*
-    #ifdef DEBUG_MODE
-      sprintf(tmpMsg, "EEPROM read: %d @ %d", *p, (ee - 1));
-      writeDebug(tmpMsg, 1);
-    #endif
-    */
   }
   return i;
 }
@@ -4223,8 +4227,8 @@ void http_update_finished () {
 void http_update_progress (int cur, int total) {
   yield();
   #ifdef DEBUG_MODE
-    sprintf(tmpMsg, "HTTP update process at %d of %d bytes...", cur, total);
-    writeDebug(tmpMsg, 1);
+    sprintf(tmpMsgD, "HTTP update process at %d of %d bytes...", cur, total);
+    writeDebug(tmpMsgD, 1);
   #endif
 }
 
@@ -4233,8 +4237,8 @@ void http_update_progress (int cur, int total) {
 *********************************************************************************************** */
 void http_update_error (int err) {
   #ifdef DEBUG_MODE
-    sprintf(tmpMsg, "HTTP update fatal error code %d", err);
-    writeDebug(tmpMsg, 1);
+    sprintf(tmpMsgD, "HTTP update fatal error code %d", err);
+    writeDebug(tmpMsgD, 1);
   #endif
 }
 #endif
@@ -4490,8 +4494,6 @@ void setup () {
      Initialization
      ------------------------------------------------------------------------------ */
   
-  #if defined(COLLECT_STATS) || defined(PERSISTENT_STATE)
-  #endif
   // Start EEPROM
   #ifdef DEBUG_MODE
     writeDebug("Init EEPROM", 1);
@@ -4555,8 +4557,8 @@ void setup () {
           // Report results
           switch(ret) {
             case HTTP_UPDATE_FAILED:
-              sprintf(tmpMsg, "OTA HTTP Update failed (%d): %s", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
-              writeDebug(tmpMsg, 1);
+              sprintf(tmpMsgE, "OTA HTTP Update failed (%d): %s", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+              writeDebug(tmpMsgE, 1);
               break;
             case HTTP_UPDATE_NO_UPDATES:
               writeDebug("OTA HTTP up to date", 1);
@@ -4624,14 +4626,14 @@ void setup () {
         });
         ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
           #ifdef DEBUG_MODE
-            sprintf(tmpMsg0, "Progress: %u%%", (progress / (total / 100)));
-            writeDebug(tmpMsg0, 1);
+            sprintf(tmpMsgD, "Progress: %u%%", (progress / (total / 100)));
+            writeDebug(tmpMsgD, 1);
           #endif
         });
         ArduinoOTA.onError([](ota_error_t error) {
           #ifdef DEBUG_MODE
-            sprintf(tmpMsg0, "Error[%u]: ", error);
-            writeDebug(tmpMsg0, 1);
+            sprintf(tmpMsgD, "Error[%u]: ", error);
+            writeDebug(tmpMsgD, 1);
             if (error == OTA_AUTH_ERROR) {
               writeDebug("Auth Failed", 1);
             } else if (error == OTA_BEGIN_ERROR) {
