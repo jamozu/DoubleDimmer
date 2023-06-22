@@ -1,14 +1,15 @@
 
 # Introduction
-This project is quite involved, so first, why go this route?
+This DIY project is quite involved, so first, why go this route?
+
 There are essentially two ways to control the lights at home, Smart Bulbs or with Smart Light Switches / dimmers, both with advantages and disadvantages. 
 
 Smart Light Switches are cheaper. Purely based on cost, smart light switches are likely to be far cheaper than smart bulbs, especially since one light switch can control multiple light fixtures, depending on how your house’s wiring is set up.
 
-You can use any bulb with Smart Light Switches. Since the traditional light bulb industry is very mature, the range of styles and accessories is much broader.
+You can use any bulb with Smart Light Switches. Since the traditional light bulb industry is very mature, the range of styles and accessories is still much broader.
 Smart Light Switches can control your existing fixtures without complex modifications.
 
-The main disadvantage is that special wiring is required in the electric boxes where the switches are to be installed (the wires for hot, neutral, as well as the wire for the light are required). In most recent installations, this is not an issue, but it can be a problem for older installations; also, there are different standards in each country.
+The main disadvantage is that special wiring is required in the electric boxes where the switches are to be installed (the wires for hot, neutral, as well as the wire for the light are required, although there are already some options that do not require both cables, this project has not reached the point of having a single wire power supply). In most recent installations, this is not an issue, but it can be a problem for older installations; also, there are different standards in each country.
 
 While smart bulbs offer more flexibility and have the possibility of adding color, they are more expensive and the need for this level of control, from my point of view, only makes sense in a few specific areas and in the end, you can combine the two solutions.
 
@@ -16,7 +17,7 @@ For these reasons, I leaned towards Smart Light Switches for the bulk of my ligh
 
 Now since there are several options on the market, why go the DIY path?
 
-Mainly I return to the point of the range of styles and accessories. In the arena of traditional light switches, there are thousands of colors, styles, textures and accessory options that are not yet available in smart switches.
+Mainly I return to the point of the range of styles and accessories. In the arena of traditional light switches, there are thousands of colors, styles, textures and accessory options that are not yet available in smart switches. I started this project a few years ago when smart devices were a lot more expensive.
 
 On the other hand, inexpensive smart switches do not offer enough functionality, and some of the more expensive ones did not fit the form factor of my installation. 
 
@@ -31,7 +32,7 @@ This project consists of an AC light dimmer for one or two incandescent light bu
 The Dimmer functionality is achieved using the phase control method, using a TRIAC for each bulb, varying the total power applied. This method works very well with incandescent light bulbs and with LED lamps that have the Dimmable specification.
 
 Features:
-* Lights can be dimmed from 4% to 100% power.
+* Lights can be dimmed from 5% to 100% power.
 * The minimum power is configurable for different types of bulbs and environments.
 *	Supports transitions between brightness levels.
 *	One push button per light bulb to control the ON/OFF state and brightness.
@@ -46,7 +47,7 @@ Features:
 *	On Power Up the device resets to the last known state, using MQTT retain or EEPROM.
 *	Optional double and triple clicks to trigger additional actions.
 *	Advanced configuration through MQTT.
-*	Each light can be set to "Switch Mode" in case the Dimmer functionality is not required or supported.
+*	Each light can be set to "Switch Mode" in case the Dimmer functionality is not required or supported in a specific bulb.
 *	The Dimmer auto detects AC frequency.
 
 For mor details check the documentation at: https://github.com/jamozu/DoubleDimmer/blob/main/RRoble_Double_Dimmer.pdf
