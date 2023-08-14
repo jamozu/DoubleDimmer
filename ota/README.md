@@ -7,7 +7,7 @@ This folder includes a test program **update.php** which receives an update requ
 
 The test program is developed in PHP, but it can be easily ported to any language supported by your HTTP server.
 
-It is possible to use a HTTPS for a remote server, but this feature is not implemented yet. See [This example]([http://localhost/](https://gist.github.com/igrr/24dd2138e9c8a7daa1b4) for more details.
+It is possible to use a HTTPS for a remote server, but this feature is not implemented yet. See [This example](https://gist.github.com/igrr/24dd2138e9c8a7daa1b4) for more details.
 
 # update.php
 
