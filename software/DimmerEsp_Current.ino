@@ -7,7 +7,7 @@
   LICENSE
   <https://mit-license.org/>.
   ------------------------------------------------------------------------------------------------
-  Copyright © 2020 Jesus Amozurrutia
+  Copyright © 2023 Jesus Amozurrutia
   
   Permission is hereby granted, free of charge, to any person obtaining a copy of this software 
   and associated documentation files (the “Software”), to deal in the Software without 
@@ -25,7 +25,7 @@
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
   
   ------------------------------------------------------------------------------------------------
-  RRoble Duble Dimmer
+  RRoble Double Dimmer
   ------------------------------------------------------------------------------------------------
   
   This project consists of an AC light dimmer for one or two incandescent light bulbs or dimmable 
@@ -164,14 +164,18 @@
   - Smooth variable frequency.
   - Fixed issue with flickering when 2 lights are turned on.
 
+  ----------------
+  0.8.08
+
+  - Fix issue with reporting IP address in "getInfo" MQTT event.
+  - Change the saved AC Freq read process, to prevent potential infinite boot loop.
+  - Improve WiFi/MQTT re-connect sequence.
+
   
   ------------------------------------------------------------------------------------------------
   Todo
   ------------------------------------------------------------------------------------------------
 
-  In Progress:
-  - Troubleshot frozen buttons issue.
-  
   Future:
   - MQTT Signatures
   - HTTPS support for image download
@@ -179,8 +183,8 @@
   ------------------------------------------------------------------------------------------------
   ------------------------------------------------------------------------------------------------
   @author Jesus Amozurrutia Elizalde <jamozu@gmail.com>
-  @version 0.8.07
-  @date 2023/06/20
+  @version 0.8.08
+  @date 2023/08/13
   @since Friday February 01 2019, 10:32:00
   @copyright MIT license
   @pre Device: ESP-12E (ESP8266)
@@ -201,7 +205,7 @@
 #define HVERSION_NUM                      2
 
 // Software version
-#define SVERSION                          "0.8.07"
+#define SVERSION                          "0.8.08"
 
 // Title for the application
 #define DEVICE_TITLE                      "RRoble Dimmer Switch"
@@ -891,6 +895,8 @@ int goLiveSwitch = 0;
 bool netFirst = true;
 // Enable system reboot only if a full network connection is detected and then goes down
 bool canReboot = false;
+// Reached a reboot state, but reboot not allowed
+bool rebootState = false;
 // Flag for controling WiFi setup
 bool wifiSetup = false;
 // Flag for controling WiFi connectivity
@@ -1093,7 +1099,6 @@ boolean LedBrgt = true;
   //  FALSE
   uint16_t statNetRstStt = 0;
   // Saved information between boots
-  //wifiRstCtr > WIFI_RESTART_REBOOT || wifiConnCtr
   struct statStruct {
     bool acConf;                          // statAcConf
     bool acSave;                          // statAcSave
@@ -1104,6 +1109,7 @@ boolean LedBrgt = true;
     uint16_t wifiRstTtl;                  // statWifiRstTtl
     uint16_t wifiRstCtr;                  // wifiRstCtr
     uint16_t wifiConnCtr;                 // wifiConnCtr
+    uint16_t statNetRstStt;               // statNetRstStt
     unsigned long aliveCounter;           // aliveCounter
   };
   statStruct sStats[STATS_NUM];
@@ -1894,6 +1900,10 @@ void systemTimer () {
     /////////////////////////////////////////////
     // Count seconds without network connection
     ++statNoNet;
+    if (rebootState) ++statNetRstStt;
+  #endif
+  #ifdef DEBUG_MODE
+    if (rebootState) writeDebug("Reached a reboot state, but reboot is not allowed at this point", 1);
   #endif
   /////////////////////////////////////////////
   // Keep alive message to broker
@@ -2030,6 +2040,22 @@ void handleLed () {
   Start WiFi
 *********************************************************************************************** */
 void wifiBegin () {
+  if (wifiSetup) return;
+  wifiStatus = false;
+  wifiSetup = true;
+  #ifdef OTA_UPDATES
+    WiFi.mode(WIFI_STA);
+  #endif
+  WiFi.begin();
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);
+  wifiTimer = millis();
+  #ifdef DEBUG_MODE
+    writeDebug("Setup WiFi connection: ", 2, true);
+    String dvSsid = WiFi.SSID();
+    writeDebug(dvSsid.c_str());
+  #endif
+  
+  /*
   if(!wifiSetup || (unsigned long)(millis() - wifiTimer) > wifiInterval) {
     #ifdef OTA_UPDATES
       WiFi.mode(WIFI_STA);
@@ -2042,15 +2068,48 @@ void wifiBegin () {
       String dvSsid = WiFi.SSID();
       writeDebug(dvSsid.c_str());
     #endif
+    // Increase re-connect interval until it passes a minute
+    if (wifiInterval < 60000) {
+      ++wifiIntervalCtrl;
+      if (wifiIntervalCtrl >= 3) {
+        wifiIntervalCtrl = 0;
+        wifiInterval *= 2;
+      }
+    }
   }
   wifiStatus = false;
   wifiSetup = true;
-  // Increase re-connect interval until it passes a minute
-  if (wifiInterval < 60000) {
-    ++wifiIntervalCtrl;
-    if (wifiIntervalCtrl >= 3) {
-      wifiIntervalCtrl = 0;
-      wifiInterval *= 2;
+  */
+}
+
+/** **********************************************************************************************
+  Re-start WiFi
+*********************************************************************************************** */
+void wifiRestart (bool doNow) {
+  if(!wifiSetup) {
+    wifiBegin();
+    return;
+  }
+  wifiStatus = false;
+  if(doNow || (unsigned long)(millis() - wifiTimer) > wifiInterval) {
+    #ifdef DEBUG_MODE
+      writeDebug("Re-connect to WiFi: ", 2, true);
+      String dvSsid = WiFi.SSID();
+      writeDebug(dvSsid.c_str());
+    #endif
+    WiFi.reconnect();
+    wifiTimer = millis();
+    ++wifiRstCtr;
+    #ifdef COLLECT_STATS
+      ++statWifiRstTtl;
+    #endif
+    // Increase re-connect interval until it passes a minute
+    if (wifiInterval < 60000) {
+      ++wifiIntervalCtrl;
+      if (wifiIntervalCtrl >= 3) {
+        wifiIntervalCtrl = 0;
+        wifiInterval *= 2;
+      }
     }
   }
 }
@@ -2065,26 +2124,23 @@ boolean netCheck () {
   //////////////////////////////////////////
   if (wifiRstCtr > WIFI_RESTART_REBOOT || wifiConnCtr > WIFI_CONNECT_REBOOT) {
     // Reboot only if a network connection has been detected since boot and the lights are off
-    if (canReboot) {
-      bool rbt = true;
-      for (int i = 0; i < INSTANCE_NUM; i++) {
-        if (inst[i].tState) rbt = false; 
-      }
-      if (rbt) {
-        #ifdef COLLECT_STATS
-          // Save the system stats that triggered the reset process
-          bool ss = saveStatus(true);
-          ss = false;
-        #endif
-        // Reboot
-        ESP.restart();
-      }
+    bool rbt = canReboot;
+    // If any of the instances is on, do not re-boot
+    for (int i = 0; i < INSTANCE_NUM; i++) {
+      if (inst[i].tState) rbt = false; 
     }
-    #ifdef COLLECT_STATS
-      else {
-        ++statNetRstStt;
-      }
-    #endif
+    if (rbt) {
+      #ifdef COLLECT_STATS
+        // Save the system stats that triggered the reset process
+        bool ss = saveStatus(true);
+        ss = false;
+      #endif
+      // Reboot
+      ESP.restart();
+    }
+    else {
+      rebootState = true;
+    }
   }
   //////////////////////////////////////////
   // Check MQTT fail counters
@@ -2100,13 +2156,8 @@ boolean netCheck () {
     #endif
     // Disconnect MQTT
     mqttDisconnect();
-    // Restart WiFi connection
-    wifiStatus = false;
-    WiFi.reconnect();
-    ++wifiRstCtr;
-    #ifdef COLLECT_STATS
-      ++statWifiRstTtl;
-    #endif
+    // Reset the WiFiConnection
+    wifiRestart(true);
     return false;
   }
   //////////////////////////////////////////
@@ -2121,16 +2172,24 @@ boolean netCheck () {
       // Disconnect MQTT
       mqttDisconnect();
       #ifdef DEBUG_MODE
-        writeDebug("WiFi is disconnected", 2);
+        writeDebug("WiFi got disconnected", 2);
       #endif
     }
     // Connection is down
+    reSubscribe = 0;
     return false;
   }
-  // Connected, but status is Down
+  // Connected, but status is DISCONNECTED
   if (!wifiStatus) {
-    // Change status
+    // Set the proper WiFi status
     wifiStatus = true;
+    #ifdef DEBUG_MODE
+      // Inform the connection status
+      IPAddress ipadd0 = WiFi.localIP();
+      writeDebug("WiFi is CONNECTED", 2);
+      sprintf(tmpMsgD, "  IP: %d.%d.%d.%d", ipadd0[0], ipadd0[1], ipadd0[2], ipadd0[3]);
+      writeDebug(tmpMsgD, 0);
+    #endif
     // Force a MQTT re-connection
     mqttDisconnect();
     // Force an immediate visit to netConnect()
@@ -2148,19 +2207,20 @@ boolean netCheck () {
   if (!mqttClient.connected()) {
     // Status is Up, so connection just fell down
     if (mqttStatus) {
-      // Change status
+      // Set the proper MQTT status
       mqttStatus = false;
       // Clear timers/counters
       mqttTmr0 = 0;
       mqttEventCtr = 0;
       #ifdef DEBUG_MODE
-        writeDebug("MQTT is disconnected", 4);
+        writeDebug("MQTT has disconnected", 4);
       #endif
     }
     // MQTT Connection is down
+    reSubscribe = 0;
     return false;
   }
-  // MQTT is connected, but status is Down
+  // MQTT is connected, but status is DISCONNECTED
   if (!mqttStatus) {
     // Status is set on the Connect Callback function, so this staus is not expected
     ++mqttEventCtr;
@@ -2179,6 +2239,8 @@ boolean netCheck () {
   }
   // All connections are OK
   wifiRstCtr = 0;
+  statNetRstStt = 0;
+  rebootState = false;
   // When WiFi and MQTT connections are detected at least once, we allow a forced reboot
   canReboot = true;
   return true;
@@ -2188,7 +2250,16 @@ boolean netCheck () {
   Connect to the MQTT Broker
 *********************************************************************************************** */
 void netConnect () {
+  // If WiFi is not configured, nothig to connect to
   if (!wifiSetup) return;
+  // Skip if not the first time or NET_RECONNECT milliseconds (2.5 sec. aprox), has not elapsed
+  // yet, peventing conection hang times and overlap...
+  unsigned long cTmr = millis();
+  if (!netFirst && (unsigned long)(cTmr - netMillis) < NET_RECONNECT) return;
+  // 
+  netFirst = false;
+  netMillis = cTmr;
+  // WiFi Status is DISCONNECTED
   if (!wifiStatus) {
     // Make sure connection is down before calling WiFi connector
     if (WiFi.status() != WL_CONNECTED) {
@@ -2200,7 +2271,8 @@ void netConnect () {
         #endif
         writeDebug(tmpMsgD, 2);
       #endif
-      wifiBegin();
+      // wifiBegin();
+      wifiRestart(false);
       // Count the number of simultaneous connection attemps
       ++wifiConnCtr;
     }
@@ -2356,7 +2428,7 @@ void mqttDisconnectCallback (AsyncMqttClientDisconnectReason reason) {
   mqttConnecting = false;
   mqttStatus = false;
   #ifdef DEBUG_MODE
-    writeDebug("MQTT Disconnected. Reason:", 4);
+    writeDebug("MQTT Disconnected. Reason:", 4, true);
     Serial.println((uint8_t)reason);
   #endif
 }
@@ -2836,20 +2908,23 @@ void mqttMessageCallback (char* topic, char* payload, AsyncMqttClientMessageProp
     }
     // Return system information
     if (strcmp(json["action"], "getInfo") == 0) {
-      const char* ipadd1 = WiFi.localIP().toString().c_str();
+      // const char* ipadd1 = WiFi.localIP().toString().c_str();
+      IPAddress ipadd0 = WiFi.localIP();
       unsigned long act = aliveCounter;
       #ifdef COLLECT_STATS
-        sprintf(tmpMsg, "{\"dev\":\"%s\",\"id\":\"%s\",\"ip\":\"%s\",\"al\":%ld,\"rc\":%d,\"cc\":%d,\"boot\":%d,\"rst\":%d}", TITLE, dconfig.myId, ipadd1, act, wifiRstCtr, wifiConnCtr, statBoot, statRst);
+        //sprintf(tmpMsg, "{\"dev\":\"%s\",\"id\":\"%s\",\"ip\":\"%s\",\"al\":%ld,\"rc\":%d,\"cc\":%d,\"boot\":%d,\"rst\":%d}", TITLE, dconfig.myId, ipadd1, act, wifiRstCtr, wifiConnCtr, statBoot, statRst);
+        sprintf(tmpMsg, "{\"dev\":\"%s\",\"id\":\"%s\",\"ip\":\"%d.%d.%d.%d\",\"al\":%ld,\"rc\":%d,\"cc\":%d,\"boot\":%d,\"rst\":%d}", TITLE, dconfig.myId, ipadd0[0], ipadd0[1], ipadd0[2], ipadd0[3], act, wifiRstCtr, wifiConnCtr, statBoot, statRst);
       #else
-        sprintf(tmpMsg, "{\"dev\":\"%s\",\"id\":\"%s\",\"ip\":\"%s\",\"al\":%ld,\"rc\":%d,\"cc\":%d}", TITLE, dconfig.myId, ipadd1, act, wifiRstCtr, wifiConnCtr);
+        //sprintf(tmpMsg, "{\"dev\":\"%s\",\"id\":\"%s\",\"ip\":\"%s\",\"al\":%ld,\"rc\":%d,\"cc\":%d}", TITLE, dconfig.myId, ipadd1, act, wifiRstCtr, wifiConnCtr);
+        sprintf(tmpMsg, "{\"dev\":\"%s\",\"id\":\"%s\",\"ip\":\"%d.%d.%d.%d\",\"al\":%ld,\"rc\":%d,\"cc\":%d}", TITLE, dconfig.myId, ipadd0[0], ipadd0[1], ipadd0[2], ipadd0[3], act, wifiRstCtr, wifiConnCtr);
       #endif
       mqttPublish(0, 0, tmpMsg, true);
       #ifdef COLLECT_STATS
-        sprintf(tmpMsg, "  AC=%d; Sv=%d; Loop=%d; Btns=%d (%d); Ovf=%d; NoNet=%d; WiFiRst=%d;  WiFiFail=%d; WiFiReconn=%d", statAcConf, statAcSave, statLoopPS, statBtnCnt, statBtnDet, statTmrOvf, statNoNet, statWifiRstTtl, wifiRstCtr, wifiConnCtr);
+        sprintf(tmpMsg, "  AC=%d; Sv=%d; Loop=%d; Btns=%d (%d); Ovf=%d; NoNet=%d; WiFiRst=%d;  WiFiFail=%d; WiFiReconn=%d; RstStt=%d", statAcConf, statAcSave, statLoopPS, statBtnCnt, statBtnDet, statTmrOvf, statNoNet, statWifiRstTtl, wifiRstCtr, wifiConnCtr, statNetRstStt);
         mqttPublish(0, 0, tmpMsg, true);
         if (json.containsKey("verbose")) {
           for (int i = 0; i < STATS_NUM; i++) {
-            sprintf(tmpMsg, "  (%d) AC=%d; Save=%d; LoopPS=%d; Btns=%d; Ovf=%d; NoNet=%d; WiFiRst=%d;  WiFiFail=%d; WiFiReconn=%d; Alive=%d", i, sStats[i].acConf, sStats[i].acSave, sStats[i].loopPS, sStats[i].btnCnt, sStats[i].tmrOvf, sStats[i].noNet, sStats[i].wifiRstTtl, sStats[i].wifiRstCtr, sStats[i].wifiConnCtr, sStats[i].aliveCounter);
+            sprintf(tmpMsg, "  (%d) AC=%d; Save=%d; LoopPS=%d; Btns=%d; Ovf=%d; NoNet=%d; WiFiRst=%d;  WiFiFail=%d; WiFiReconn=%d; RstStt=%d; Alive=%d", i, sStats[i].acConf, sStats[i].acSave, sStats[i].loopPS, sStats[i].btnCnt, sStats[i].tmrOvf, sStats[i].noNet, sStats[i].wifiRstTtl, sStats[i].wifiRstCtr, sStats[i].wifiConnCtr, sStats[i].statNetRstStt, sStats[i].aliveCounter);
             mqttPublish(0, 0, tmpMsg, true);
           }
         }
@@ -3486,16 +3561,16 @@ void saveAcConfig () {
 *********************************************************************************************** */
 boolean getAcConfig () {
   // No AC activity.
-  if (!pDetect[0].init) return false;
+  //if (!pDetect[0].init) return false;
   // Get parameters from EEPROM
-  int addr = EADDR_INIT;
+  int addr = EADDR_AC_CONFIG;
   uint8_t fqv = 0;
   #ifdef DEBUG_MODE
     writeDebug("Reading AC parameters", 1);
   #endif
   addr += EEPROM_readAnything(addr, fqv);
   addr += EEPROM_readAnything(addr, ticPulse);
-  if ((freq == 60 || freq == 50) && ticPulse > 0) {
+  if ((fqv == 60 || fqv == 50) && ticPulse > 0) {
     setFreq(fqv);
     return true;
   }
@@ -3868,8 +3943,9 @@ void loadLastStatus () {
     addr += EEPROM_readAnything(addr, sStats[i].wifiRstCtr);
     addr += EEPROM_readAnything(addr, sStats[i].wifiConnCtr);
     addr += EEPROM_readAnything(addr, sStats[i].aliveCounter);
+    addr += EEPROM_readAnything(addr, sStats[i].statNetRstStt);
     #ifdef DEBUG_MODE
-      sprintf(tmpMsgE, "  (%d) AC=%d; Save=%d; LoopPS=%d; Btns=%d; Ovf=%d; NoNet=%d; WiFiRst=%d;  WiFiFail=%d; WiFiReconn=%d; Alive=%d", i, sStats[i].acConf, sStats[i].acSave, sStats[i].loopPS, sStats[i].btnCnt, sStats[i].tmrOvf, sStats[i].noNet, sStats[i].wifiRstTtl, sStats[i].wifiRstCtr, sStats[i].wifiConnCtr, sStats[i].aliveCounter);
+      sprintf(tmpMsgE, "  (%d) AC=%d; Save=%d; LoopPS=%d; Btns=%d; Ovf=%d; NoNet=%d; WiFiRst=%d;  WiFiFail=%d; WiFiReconn=%d; RstStt=%d; Alive=%d", i, sStats[i].acConf, sStats[i].acSave, sStats[i].loopPS, sStats[i].btnCnt, sStats[i].tmrOvf, sStats[i].noNet, sStats[i].wifiRstTtl, sStats[i].wifiRstCtr, sStats[i].wifiConnCtr, sStats[i].statNetRstStt, sStats[i].aliveCounter);
       writeDebug(tmpMsgE, 1);
     #endif
   }
@@ -3922,6 +3998,7 @@ boolean saveStatus (bool forced) {
   addr += EEPROM_writeAnything(addr, wifiRstCtr);
   addr += EEPROM_writeAnything(addr, wifiConnCtr);
   addr += EEPROM_writeAnything(addr, aliveCounter);
+  addr += EEPROM_writeAnything(addr, statNetRstStt);
   for (int i = 0; i < (STATS_NUM - 1); i++) {
     bv = (sStats[i].acConf) ? 1 : 0;
     addr += EEPROM_writeAnything(addr, bv);
@@ -3935,6 +4012,7 @@ boolean saveStatus (bool forced) {
     addr += EEPROM_writeAnything(addr, sStats[i].wifiRstCtr);
     addr += EEPROM_writeAnything(addr, sStats[i].wifiConnCtr);
     addr += EEPROM_writeAnything(addr, sStats[i].aliveCounter);
+    addr += EEPROM_writeAnything(addr, sStats[i].statNetRstStt);
   }
   bool ret = EEPROM.commit();
   #ifdef DEBUG_MODE
@@ -3974,6 +4052,7 @@ void clearStatus () {
     sStats[i].wifiRstTtl = 0;
     sStats[i].wifiRstCtr = 0;
     sStats[i].wifiConnCtr = 0;
+    sStats[i].statNetRstStt = 0;
     sStats[i].aliveCounter = 0;
   }
   if (saveStatus(false)) {
@@ -4536,6 +4615,11 @@ void setup () {
     }
     // If WiFi is available, configure OTA updates
     if (otaEnabled) {
+      #ifdef DEBUG_MODE
+        IPAddress ipadd0 = WiFi.localIP();
+        sprintf(tmpMsgD, "WiFi Connected: %d.%d.%d.%d", ipadd0[0], ipadd0[1], ipadd0[2], ipadd0[3]);
+        writeDebug(tmpMsgD, 2);
+      #endif
       #ifdef OTA_HTTP
         // Web server update
         #ifdef DEBUG_MODE
@@ -4687,20 +4771,22 @@ void setup () {
       }
       yield();
       // If it takes more than 8 seconds to setup... read saved AC config.
-      // If AC config not available, reboot.
       if (statNoNet > 80) {
         #ifdef DEBUG_MODE
           writeDebug("Dimmer auto configuration mode timeout", 3);
         #endif
         saveAC = false;
         if (!isEepromInit() || !getAcConfig()) {
+          // If AC config not available, reboot.
           #ifdef COLLECT_STATS
             // Save system stats
             bool ss = saveStatus(true);
             ss = false;
           #endif
           ESP.restart();
-        } 
+        } else {
+          inSetup = false;
+        }
       }
     }
     detachInterrupt(digitalPinToInterrupt(PIN_ZCROSS ));
@@ -4783,13 +4869,8 @@ void loop () {
       statNoNet = 0;
     #endif
   } else {
-    // Attemp to reconnect every NET_RECONNECT milliseconds (2.5 sec. aprox), peventing conection 
-    // overlap and hang times...
-    if (netFirst || (unsigned long)(cTmr - netMillis) > NET_RECONNECT) {
-      netFirst = false;
-      netConnect();
-      netMillis = cTmr;
-    }
+    // Attemp to re-establish network conections
+    netConnect();
     // Refresh the publish timer
     pubMillis = cTmr;
   }
