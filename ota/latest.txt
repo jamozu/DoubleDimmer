@@ -1,0 +1,1 @@
+{"S02":{"version":"0.8.08","file":"DimmerEspV000808S02.bin"},"D02":{"version":"0.8.08","file":"DimmerEspV000808D01.bin"}}
